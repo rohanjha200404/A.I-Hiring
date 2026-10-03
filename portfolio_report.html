@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Project Portfolio Report</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --ink: #1e2a38;
+        --muted: #5c6b7a;
+        --line: #dfe7f1;
+        --primary: #1f4e79;
+        --secondary: #2f6f9f;
+        --accent: #dfeaf6;
+      }
+
+      @page {
+        size: A4;
+        margin: 18mm;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: Arial, Helvetica, sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        line-height: 1.55;
+      }
+
+      .page {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 0 auto;
+        background: var(--panel);
+        padding: 18mm 20mm 14mm;
+      }
+
+      .header {
+        border-bottom: 3px solid var(--primary);
+        padding-bottom: 12px;
+        margin-bottom: 18px;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 28px;
+        letter-spacing: 0.04em;
+        color: var(--primary);
+      }
+
+      .subtitle {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .section {
+        margin-top: 20px;
+      }
+
+      .section h2 {
+        margin: 0 0 10px 0;
+        font-size: 18px;
+        color: var(--primary);
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 6px;
+      }
+
+      p {
+        margin: 0 0 10px 0;
+        font-size: 13px;
+      }
+
+      ul, ol {
+        margin: 8px 0 10px 20px;
+        padding: 0;
+        font-size: 13px;
+      }
+
+      li {
+        margin-bottom: 5px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfcff;
+        padding: 12px 14px;
+      }
+
+      .card h3 {
+        margin: 0 0 8px 0;
+        font-size: 15px;
+        color: var(--secondary);
+      }
+
+      .project-title {
+        font-size: 19px;
+        font-weight: 700;
+        color: var(--primary);
+        margin-bottom: 8px;
+      }
+
+      .meta {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 10px;
+      }
+
+      .tag {
+        display: inline-block;
+        background: var(--accent);
+        color: var(--primary);
+        border: 1px solid #cfe0f2;
+        border-radius: 999px;
+        padding: 4px 9px;
+        font-size: 11px;
+        font-weight: 600;
+        margin: 3px 6px 3px 0;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 16px;
+      }
+
+      .section-break {
+        page-break-inside: avoid;
+      }
+
+      @media print {
+        body {
+          background: #fff;
+        }
+        .page {
+          width: auto;
+          min-height: auto;
+          margin: 0;
+          padding: 0;
+          box-shadow: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="header">
+        <h1>PROJECT PORTFOLIO REPORT</h1>
+        <div class="subtitle">Rohan Jha • Software Development Portfolio</div>
+      </div>
+
+      <div class="section">
+        <h2>Executive Summary</h2>
+        <p>
+          This portfolio reflects a diverse and practical software engineering background focused on
+          creating business-oriented digital products, AI-driven applications, workflow automation, and
+          secure data systems. The projects represent work across full-stack web development, mobile app
+          development, database integration, cybersecurity, and algorithmic problem solving.
+        </p>
+        <p>
+          The portfolio demonstrates the ability to design and build systems that are not only technically
+          functional but also relevant to real business needs. Projects span recruitment technology,
+          inventory operations, data automation, AI experimentation, and enterprise-style software
+          workflows. Across these initiatives, I have worked with frontend frameworks, backend services,
+          database systems, authentication flows, file processing, and AI-based decision-making.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>Technical Summary</h2>
+        <div class="grid">
+          <div class="card">
+            <h3>Core Technologies</h3>
+            <div>
+              <span class="tag">JavaScript</span>
+              <span class="tag">React</span>
+              <span class="tag">Node.js</span>
+              <span class="tag">Express</span>
+              <span class="tag">MySQL</span>
+              <span class="tag">Sequelize</span>
+              <span class="tag">Python</span>
+              <span class="tag">Swift</span>
+              <span class="tag">Java</span>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Key Skills</h3>
+            <ul>
+              <li>Full-stack application development</li>
+              <li>Database design and integration</li>
+              <li>Authentication and security</li>
+              <li>AI and machine learning concepts</li>
+              <li>Business process automation</li>
+              <li>Mobile app development</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="section section-break">
+        <h2>Project Portfolio</h2>
+
+        <div class="project-title">1. A.I-Hiring</div>
+        <div class="meta">Repository: rohanjha200404/A.I-Hiring • Stack: React, Node.js, Express, MySQL, Sequelize</div>
+        <p>
+          A.I-Hiring is a full-stack recruitment platform that focuses on improving and automating the hiring
+          process. The system is built as a monorepo with a separate frontend and backend, enabling scalable
+          application architecture and clear separation of responsibilities.
+        </p>
+        <p><strong>Key aspects:</strong></p>
+        <ul>
+          <li>Recruitment workflow support and user management</li>
+          <li>Secure authentication and authorization using JWT and bcrypt</li>
+          <li>File handling for resume and document uploads</li>
+          <li>CSV and PDF processing for operational data handling</li>
+          <li>Real-time communication support using Socket.IO</li>
+          <li>Dynamic frontend built with React and Vite</li>
+        </ul>
+        <p>
+          This project demonstrates the ability to build a business-facing platform with multiple integrated
+          modules, including security, data processing, and user-facing interaction. It reflects practical
+          experience in full-stack engineering and production-oriented software design.
+        </p>
+      </div>
+
+      <div class="section section-break">
+        <div class="project-title">2. Inventory Management</div>
+        <div class="meta">Repository: rohanjha200404/inventory-management • Stack: React, Vite, Node.js, Express, MySQL</div>
+        <p>
+          This project is a full-stack inventory system designed to help organizations track stock, manage items,
+          and support operational workflows. The architecture follows a common business-application pattern with
+          frontend and backend separation and a database-backed data layer.
+        </p>
+        <p><strong>Key aspects:</strong></p>
+        <ul>
+          <li>Inventory and stock management workflows</li>
+          <li>Authentication and security for application users</li>
+          <li>CSV import support for operational data ingestion</li>
+          <li>Email integration and communication flows</li>
+          <li>REST-based backend APIs for inventory operations</li>
+          <li>Responsive business dashboard experience</li>
+        </ul>
+        <p>
+          The project shows a strong understanding of internal business tooling, process management, and data
+          visibility. It is highly relevant to software work that supports daily operational decision-making.
+        </p>
+      </div>
+
+      <div class="section section-break">
+        <div class="project-title">3. CSV-Automation</div>
+        <div class="meta">Repository: rohanjha200404/CSV-Automation • Stack: JavaScript</div>
+        <p>
+          CSV-Automation focuses on streamlining repetitive business workflows involving CSV data. It reflects a
+          practical interest in process automation, data transformation, and reducing manual administrative effort.
+        </p>
+        <p><strong>Key aspects:</strong></p>
+        <ul>
+          <li>Structured data processing</li>
+          <li>Workflow automation for repetitive operations</li>
+          <li>Reduction of manual spreadsheet-driven work</li>
+          <li>Data validation and repeatable operational tasks</li>
+        </ul>
+        <p>
+          This project demonstrates problem-solving ability in business-process automation and a clear understanding
+          of how software can improve operational efficiency.
+        </p>
+      </div>
+
+      <div class="section section-break">
+        <div class="project-title">4. urlguardAI</div>
+        <div class="meta">Repository: rohanjha200404/urlguardAI • Stack: JavaScript, Node.js, MySQL, Sequelize</div>
+        <p>
+          urlguardAI is a cybersecurity-focused application built around phishing URL detection using AI-based
+          decision logic. Its primary objective is to analyze URL characteristics and add a layer of security
+          intelligence to suspicious link evaluation.
+        </p>
+        <p><strong>Key aspects:</strong></p>
+        <ul>
+          <li>Cybersecurity and phishing detection concept</li>
+          <li>AI-driven URL classification using reinforcement learning ideas</li>
+          <li>Backend integration with MySQL and Sequelize</li>
+          <li>Frontend visualization and interaction layer</li>
+        </ul>
+        <p>
+          This project highlights the ability to apply artificial intelligence to practical security challenges,
+          showing interest in data-driven decision systems beyond standard business CRUD tools.
+        </p>
+      </div>
+
+      <div class="section section-break">
+        <div class="project-title">5. poker_py</div>
+        <div class="meta">Repository: rohanjha200404/poker_py • Stack: Python, Streamlit</div>
+        <p>
+          poker_py is an interactive AI poker game implemented in Python using Streamlit. The project combines
+          game logic, card evaluation, and decision-making algorithms to create a playable and demonstrable AI
+          application.
+        </p>
+        <p><strong>Key aspects:</strong></p>
+        <ul>
+          <li>Deck generation and card handling</li>
+          <li>Poker hand evaluation and ranking logic</li>
+          <li>Game-state modeling and betting interactions</li>
+          <li>Q-table based AI decision-making</li>
+          <li>Interactive visual interface using Streamlit</li>
+        </ul>
+        <p>
+          This project is valuable as evidence of algorithmic thinking and the practical application of
+          reinforcement learning concepts in a user-facing environment.
+        </p>
+      </div>
+
+      <div class="section section-break">
+        <div class="project-title">6. inventoryIos</div>
+        <div class="meta">Repository: rohanjha200404/inventoryIos • Stack: Swift, Xcode</div>
+        <p>
+          inventoryIos is a native iOS application built around inventory management concepts. It extends the
+          business system idea into mobile-first use cases, where users may need inventory visibility and updates
+          while working outside a desktop environment.
+        </p>
+        <p><strong>Key aspects:</strong></p>
+        <ul>
+          <li>Native iOS app architecture</li>
+          <li>Swift development</li>
+          <li>Mobile business workflow support</li>
+          <li>Focus on operational mobility</li>
+        </ul>
+        <p>
+          This project shows adaptability beyond web platforms and demonstrates interest in building software for
+          field operations and mobile enterprise scenarios.
+        </p>
+      </div>
+
+      <div class="section section-break">
+        <h2>Professional Profile</h2>
+        <p>
+          This portfolio represents a developer with a broad interest in building systems that solve meaningful
+          business and technical problems. The projects show a balance of product thinking, engineering discipline,
+          and exploratory work in AI and emerging technology.
+        </p>
+        <p>
+          The strongest recurring themes are full-stack development, data-driven problem solving, business software,
+          security-minded system design, and experimentation with intelligent systems. These are all highly relevant
+          to modern software roles in product engineering, business technology, digital transformation, and AI-enabled
+          application development.
+        </p>
+      </div>
+
+      <div class="section section-break">
+        <h2>Conclusion</h2>
+        <p>
+          The portfolio reflects a solid foundation in both practical software development and emerging technical
+          areas. It demonstrates the ability to operate across product, backend, database, and AI-driven problem
+          spaces, while staying anchored in real-world use cases.
+        </p>
+        <p>
+          The most prominent projects are A.I-Hiring, Inventory Management, and urlguardAI, as they combine clear
+          business relevance with technical depth and show the ability to build systems that go beyond academic or
+          prototype-level work.
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
