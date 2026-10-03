@@ -1,0 +1,14 @@
+{
+  "name": "ai-hiring-platform",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\""
+  },
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
