@@ -20,11 +20,6 @@ export const CompanySettings = sequelize.define('CompanySettings', {
     type: DataTypes.STRING,
     allowNull: false,
   },
-  defaultEmployeePermissions: {
-    type: DataTypes.JSON,
-    allowNull: false,
-    defaultValue: ['jobs'],
-  },
 }, {
   timestamps: true,
 });

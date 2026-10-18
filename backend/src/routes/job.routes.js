@@ -3,9 +3,9 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { uploadJobsCSV, uploadJobTemplate, downloadTemplate, listJobs, updateJob, deleteJob } from '../controllers/job.controller.js';
+import { uploadJobsCSV, uploadJobTemplate, downloadTemplate, listJobs, listMatchingJobs, updateJob, deleteJob } from '../controllers/job.controller.js';
 import { decryptRequest } from '../middlewares/encryption.middleware.js';
-import { requireCompanyAccess, requireRecruiter } from '../middlewares/auth.middleware.js';
+import { requireCandidate, requireCompanyAccess, requireRecruiter } from '../middlewares/auth.middleware.js';
 
 // Ensure uploads directory exists
 const uploadDir = path.resolve('uploads');
@@ -57,6 +57,7 @@ const receiveJobsCsv = (req, res, next) => {
     });
 };
 
+router.get('/matches', requireCandidate, listMatchingJobs);
 router.post('/upload', requireCompanyAccess('jobs'), receiveJobsCsv, uploadJobsCSV);
 router.get('/template', requireCompanyAccess('jobs'), downloadTemplate);
 router.post('/template', requireRecruiter, templateUpload.single('file'), uploadJobTemplate);

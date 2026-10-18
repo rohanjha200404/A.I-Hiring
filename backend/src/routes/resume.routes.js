@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
-import { parseResume, viewCandidateResume } from '../controllers/resume.controller.js';
+import { parseResume, viewCandidateResume, getMyResume, viewMyResume } from '../controllers/resume.controller.js';
 import { requireCandidate, requireCompanyAccess } from '../middlewares/auth.middleware.js';
 import { resumeUploadDir } from '../utils/upload.paths.js';
 
@@ -23,6 +23,8 @@ const router = express.Router();
 
 // Candidate uploads resume
 router.post('/upload', requireCandidate, upload.single('file'), parseResume);
+router.get('/me', requireCandidate, getMyResume);
+router.get('/me/file', requireCandidate, viewMyResume);
 router.get('/:candidateId', requireCompanyAccess('candidates'), viewCandidateResume);
 
 export default router;

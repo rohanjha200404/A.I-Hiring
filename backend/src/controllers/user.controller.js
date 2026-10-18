@@ -29,6 +29,7 @@ export const listCandidates = async (_req, res) => {
       stage: workflowByCandidateId.get(candidate.id)?.stage || 'Pending',
       outreachStatus: workflowByCandidateId.get(candidate.id)?.outreachStatus || 'Pending',
       lastContactedAt: workflowByCandidateId.get(candidate.id)?.lastContactedAt || null,
+      notes: workflowByCandidateId.get(candidate.id)?.notes || '',
     })));
   } catch (error) {
     res.status(500).json({ message: 'Could not load candidate details', error: error.message });
@@ -89,6 +90,9 @@ export const updateCandidateWorkflow = async (req, res) => {
     if (req.body.outreachStatus && !outreachStatuses.includes(req.body.outreachStatus)) {
       return res.status(400).json({ message: 'Invalid outreach status' });
     }
+    if (req.body.notes !== undefined && typeof req.body.notes !== 'string') {
+      return res.status(400).json({ message: 'Candidate notes must be text' });
+    }
 
     const [workflow] = await CandidateWorkflow.findOrCreate({
       where: { candidateId: candidate.id },
@@ -100,6 +104,7 @@ export const updateCandidateWorkflow = async (req, res) => {
       update.outreachStatus = req.body.outreachStatus;
       update.lastContactedAt = req.body.outreachStatus === 'Contacted' ? new Date() : null;
     }
+    if (req.body.notes !== undefined) update.notes = req.body.notes.trim();
     await workflow.update(update);
 
     if (req.body.stage && req.body.stage !== 'Pending') {
@@ -111,7 +116,7 @@ export const updateCandidateWorkflow = async (req, res) => {
       });
     }
 
-    res.json({ candidateId: candidate.id, stage: workflow.stage, outreachStatus: workflow.outreachStatus, lastContactedAt: workflow.lastContactedAt });
+    res.json({ candidateId: candidate.id, stage: workflow.stage, outreachStatus: workflow.outreachStatus, lastContactedAt: workflow.lastContactedAt, notes: workflow.notes });
   } catch (error) {
     res.status(500).json({ message: 'Could not update candidate status', error: error.message });
   }

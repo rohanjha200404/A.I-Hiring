@@ -68,7 +68,7 @@ export const login = async (req, res) => {
       token,
       user: user
         ? { id: user.id, name: user.name, role, email: user.email }
-        : { id: employee.id, name: employee.name, role, email: employee.email, employeeId: employee.employeeId, companyName: employee.companyName, permissions: employee.permissions },
+        : { id: employee.id, name: employee.name, role, email: employee.email, employeeId: employee.employeeId, position: employee.position, companyName: employee.companyName, permissions: employee.permissions },
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

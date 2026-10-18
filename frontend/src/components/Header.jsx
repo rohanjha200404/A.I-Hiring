@@ -151,7 +151,7 @@ const Header = () => {
         </div>
         <div>
           <h1 className="max-w-[55vw] truncate text-base font-bold text-slate-900 sm:max-w-[28rem] sm:text-lg">
-            {account?.name || pageTitle}
+            {account?.companyName || account?.name || pageTitle}
           </h1>
           <p className="text-xs text-slate-500">{account ? accountType : 'AI Recruitment workspace'}</p>
         </div>

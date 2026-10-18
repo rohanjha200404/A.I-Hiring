@@ -26,6 +26,11 @@ export const CandidateWorkflow = sequelize.define('CandidateWorkflow', {
     type: DataTypes.DATE,
     allowNull: true,
   },
+  notes: {
+    type: DataTypes.TEXT,
+    allowNull: false,
+    defaultValue: '',
+  },
 }, {
   timestamps: true,
 });

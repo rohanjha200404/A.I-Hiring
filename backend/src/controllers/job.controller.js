@@ -2,6 +2,7 @@ import fs from 'fs';
 import csvParser from 'csv-parser';
 import { Readable } from 'stream';
 import { Job } from '../models/job.model.js';
+import { CandidateResume } from '../models/candidate-resume.model.js';
 import { CompanyJobTemplate } from '../models/company-job-template.model.js';
 import { Notification } from '../models/notification.model.js';
 
@@ -116,6 +117,31 @@ export const listJobs = async (req, res) => {
     res.json(jobs);
   } catch (error) {
     res.status(500).json({ message: 'Could not load uploaded jobs', error: error.message });
+  }
+};
+
+const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+export const listMatchingJobs = async (req, res) => {
+  try {
+    const resume = await CandidateResume.findOne({ where: { candidateId: req.auth.id } });
+    if (!resume) return res.json([]);
+
+    const courseTokens = new Set(normalize(resume.mappedCourse).split(' ').filter((token) => token.length > 1));
+    const jobs = await Job.findAll({ order: [['createdAt', 'DESC']], limit: 100 });
+    const matchingJobs = jobs.filter((job) => {
+      const requiredExperience = Number(job.experience_required) || 0;
+      const requiredCourse = normalize(job.course_required);
+      const requiredTokens = requiredCourse.split(' ').filter((token) => token.length > 1);
+      const courseMatches = requiredTokens.length === 0
+        || resume.mappedCourse === 'Unknown'
+        || requiredTokens.some((token) => courseTokens.has(token));
+      return resume.yearsExperience >= requiredExperience && courseMatches;
+    });
+
+    res.json(matchingJobs);
+  } catch (error) {
+    res.status(500).json({ message: 'Could not load matching jobs', error: error.message });
   }
 };
 

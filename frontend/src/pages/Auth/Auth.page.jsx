@@ -2,11 +2,13 @@ import { useState } from 'react';
 import api from '../../api/axios.config.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { ArrowUpRight, Eye, EyeOff, ShieldCheck, Sparkles } from 'lucide-react';
 
 const Auth = ({ role = 'candidate', initialView = 'login' }) => {
   const [view, setView] = useState(initialView); // 'login', 'register', 'forgot', 'reset'
   const [formData, setFormData] = useState({ name: '', email: '', password: '', otp: '', newPassword: '' });
   const [devOtp, setDevOtp] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -71,15 +73,30 @@ const Auth = ({ role = 'candidate', initialView = 'login' }) => {
   };
 
   return (
-    <section className="auth-page">
+    <section className="auth-page auth-login-page">
       <div className="auth-card">
         <aside className="auth-story">
-          <p className="auth-kicker">AI RECRUITMENT PLATFORM</p>
+          <div className="auth-story-topline">
+            <span className="auth-story-mark"><Sparkles size={15} /></span>
+            <p className="auth-kicker">SMART JOB &amp; HIRING PLATFORM</p>
+          </div>
           <h1>{role === 'recruiter' ? 'Build your next great team.' : 'Find the role that fits you.'}</h1>
-          <p>{role === 'recruiter' ? 'Manage open positions and find candidates who can move your team forward.' : 'Share your experience and discover opportunities matched to your profile.'}</p>
+          <p className="auth-story-description">{role === 'recruiter' ? 'Manage open positions and find candidates who can move your team forward.' : 'Share your experience and discover opportunities matched to your profile.'}</p>
+          <div className="auth-story-insight">
+            <div className="auth-story-insight-icon"><ShieldCheck size={18} /></div>
+            <div>
+              <strong>{role === 'recruiter' ? 'Your hiring workspace' : 'Your career workspace'}</strong>
+              <span>Secure, focused, ready when you are.</span>
+            </div>
+            <ArrowUpRight size={18} />
+          </div>
         </aside>
 
         <div className="auth-panel">
+          <div className="auth-panel-toolbar">
+            <span><span className="auth-status-dot" /> SECURE ACCESS</span>
+            <Link to="/" className="auth-switch-role">Switch role</Link>
+          </div>
           <div className="auth-panel-heading">
             <h2>
               {view === 'login' && `${role === 'recruiter' ? 'Company' : 'Candidate'} login`}
@@ -111,7 +128,12 @@ const Auth = ({ role = 'candidate', initialView = 'login' }) => {
           {(view === 'login' || view === 'register') && (
             <label className="auth-field">
               Password
-              <input name="password" type="password" autoComplete={view === 'login' ? 'current-password' : 'new-password'} onChange={handleChange} required />
+              <span className="auth-password-input">
+                <input name="password" type={showPassword ? 'text' : 'password'} autoComplete={view === 'login' ? 'current-password' : 'new-password'} onChange={handleChange} required />
+                <button type="button" className="auth-password-toggle" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </span>
             </label>
           )}
 

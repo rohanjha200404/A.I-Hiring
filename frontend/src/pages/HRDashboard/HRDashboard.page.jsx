@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { UploadCloud, Download, Users, Briefcase, Pencil, Trash2, Save, X, Eye, Mail, Settings } from 'lucide-react';
+import { UploadCloud, Download, Users, Briefcase, Pencil, Trash2, Save, X, Eye, Mail, Settings, FilePenLine } from 'lucide-react';
 import api from '../../api/axios.config.js';
 import { toast } from 'sonner';
 
@@ -40,9 +40,16 @@ const HRDashboard = () => {
   const isCompanyAdmin = ['HR', 'Admin'].includes(account?.role);
   const canAccessJobs = isCompanyAdmin || (account?.role === 'Employee' && account.permissions?.includes('jobs'));
   const canAccessCandidates = isCompanyAdmin || (account?.role === 'Employee' && account.permissions?.includes('candidates'));
+  const canAccessAccounts = isCompanyAdmin || (account?.role === 'Employee' && account.permissions?.includes('accounts'));
+  const canAccessSettings = isCompanyAdmin || (account?.role === 'Employee' && account.permissions?.includes('settings'));
   const [activeTab, setActiveTab] = useState(() => {
     const currentAccount = readSessionUser();
-    if (currentAccount?.role === 'Employee' && !currentAccount.permissions?.includes('jobs') && currentAccount.permissions?.includes('candidates')) return 'candidates';
+    if (currentAccount?.role === 'Employee') {
+      if (currentAccount.permissions?.includes('jobs')) return 'jobs';
+      if (currentAccount.permissions?.includes('candidates')) return 'candidates';
+      if (currentAccount.permissions?.includes('accounts')) return 'accounts';
+      if (currentAccount.permissions?.includes('settings')) return 'settings';
+    }
     return 'jobs';
   });
   const [uploadStatus, setUploadStatus] = useState('');
@@ -53,8 +60,10 @@ const HRDashboard = () => {
   const [candidatesLoaded, setCandidatesLoaded] = useState(false);
   const [candidateModalOpen, setCandidateModalOpen] = useState(false);
   const [busyCandidateId, setBusyCandidateId] = useState(null);
+  const [savingNotesCandidateId, setSavingNotesCandidateId] = useState(null);
   const [resumePreview, setResumePreview] = useState(null);
   const [mailCandidate, setMailCandidate] = useState(null);
+  const [noteCandidate, setNoteCandidate] = useState(null);
   const [mailTemplates, setMailTemplates] = useState([]);
   const [mailTemplate, setMailTemplate] = useState('');
   const [mailSubject, setMailSubject] = useState('');
@@ -69,13 +78,13 @@ const HRDashboard = () => {
   const [employees, setEmployees] = useState([]);
   const [employeesLoading, setEmployeesLoading] = useState(false);
   const [employeeCreateOpen, setEmployeeCreateOpen] = useState(false);
-  const [employeeForm, setEmployeeForm] = useState({ name: '', employeeId: '', password: '', permissions: ['jobs'] });
+  const [editingEmployee, setEditingEmployee] = useState(null);
+  const [employeeForm, setEmployeeForm] = useState({ name: '', employeeId: '', position: '', password: '', permissions: ['jobs'] });
   const [creatingEmployee, setCreatingEmployee] = useState(false);
   const [busyEmployeeId, setBusyEmployeeId] = useState(null);
   const [companySettings, setCompanySettings] = useState({
     companyName: account?.name || '',
     employeeEmailDomain: `${companyDomainFromName(account?.name)}.com`,
-    defaultEmployeePermissions: ['jobs'],
   });
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -142,7 +151,6 @@ const HRDashboard = () => {
     try {
       const response = await api.get('/company-settings');
       setCompanySettings(response.data);
-      setEmployeeForm((current) => ({ ...current, permissions: response.data.defaultEmployeePermissions }));
     } catch (error) {
       toast.error(error.response?.data?.message || 'Could not load company settings.');
     } finally {
@@ -155,12 +163,12 @@ const HRDashboard = () => {
   }, [canAccessJobs]);
 
   useEffect(() => {
-    if (isCompanyAdmin) loadEmployees();
-  }, [isCompanyAdmin]);
+    if (canAccessAccounts) loadEmployees();
+  }, [canAccessAccounts]);
 
   useEffect(() => {
-    if (isCompanyAdmin) loadCompanySettings();
-  }, [isCompanyAdmin]);
+    if (canAccessSettings) loadCompanySettings();
+  }, [canAccessSettings]);
 
   useEffect(() => {
     if (activeTab === 'settings' && isCompanyAdmin) loadMailTemplates();
@@ -334,15 +342,35 @@ const HRDashboard = () => {
     }
   };
 
-  const handleCreateEmployee = async (event) => {
+  const handleSaveCandidateNotes = async (candidate) => {
+    setSavingNotesCandidateId(candidate.id);
+    try {
+      const response = await api.patch(`/users/candidates/${candidate.id}/workflow`, { notes: candidate.notes || '' });
+      setCandidates((current) => current.map((item) => item.id === candidate.id ? { ...item, notes: response.data.notes } : item));
+      toast.success('Candidate note saved.');
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not save candidate notes.');
+      return false;
+    } finally {
+      setSavingNotesCandidateId(null);
+    }
+  };
+
+  const handleSaveEmployee = async (event) => {
     event.preventDefault();
     setCreatingEmployee(true);
     try {
-      const response = await api.post('/employees', employeeForm);
-      setEmployees((current) => [response.data, ...current]);
-      setEmployeeForm({ name: '', employeeId: '', password: '', permissions: ['jobs'] });
+      const response = editingEmployee
+        ? await api.put(`/employees/${editingEmployee.id}`, employeeForm)
+        : await api.post('/employees', employeeForm);
+      setEmployees((current) => editingEmployee
+        ? current.map((employee) => employee.id === response.data.id ? response.data : employee)
+        : [response.data, ...current]);
+      setEmployeeForm({ name: '', employeeId: '', position: '', password: '', permissions: ['jobs'] });
+      setEditingEmployee(null);
       setEmployeeCreateOpen(false);
-      toast.success('Employee account created', { description: `Login: ${response.data.email}` });
+      toast.success(editingEmployee ? 'Employee account updated' : 'Employee account created', { description: `Login: ${response.data.email}` });
     } catch (error) {
       toast.error(error.response?.data?.message || 'Could not create employee account.');
     } finally {
@@ -350,13 +378,16 @@ const HRDashboard = () => {
     }
   };
 
-  const toggleDefaultPermission = (permission) => {
-    setCompanySettings((current) => ({
-      ...current,
-      defaultEmployeePermissions: current.defaultEmployeePermissions.includes(permission)
-        ? current.defaultEmployeePermissions.filter((item) => item !== permission)
-        : [...current.defaultEmployeePermissions, permission],
-    }));
+  const openCreateEmployee = () => {
+    setEditingEmployee(null);
+    setEmployeeForm({ name: '', employeeId: '', position: '', password: '', permissions: ['jobs'] });
+    setEmployeeCreateOpen(true);
+  };
+
+  const openEditEmployee = (employee) => {
+    setEditingEmployee(employee);
+    setEmployeeForm({ name: employee.name, employeeId: employee.employeeId, position: employee.position || '', password: '', permissions: employee.permissions || [] });
+    setEmployeeCreateOpen(true);
   };
 
   const handleSaveCompanySettings = async (event) => {
@@ -365,7 +396,6 @@ const HRDashboard = () => {
     try {
       const response = await api.put('/company-settings', companySettings);
       setCompanySettings(response.data);
-      setEmployeeForm((current) => ({ ...current, permissions: response.data.defaultEmployeePermissions }));
       const updatedAccount = { ...account, name: response.data.companyName };
       localStorage.setItem('user', JSON.stringify(updatedAccount));
       window.dispatchEvent(new Event('app:account-updated'));
@@ -495,7 +525,7 @@ const HRDashboard = () => {
             <Users size={20} /> Candidate Details
           </button>
         )}
-        {isCompanyAdmin && (
+        {canAccessAccounts && (
           <button
             className={`min-w-[180px] flex-1 py-4 flex justify-center items-center gap-2 border-b-2 font-semibold ${activeTab === 'accounts' ? 'text-brand-dark-green border-brand-dark-green' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
             onClick={() => setActiveTab('accounts')}
@@ -503,7 +533,7 @@ const HRDashboard = () => {
             <Users size={20} /> Employee Accounts
           </button>
         )}
-        {isCompanyAdmin && (
+        {canAccessSettings && (
           <button
             className={`min-w-[180px] flex-1 py-4 flex justify-center items-center gap-2 border-b-2 font-semibold ${activeTab === 'settings' ? 'text-brand-dark-green border-brand-dark-green' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
             onClick={() => setActiveTab('settings')}
@@ -678,7 +708,7 @@ const HRDashboard = () => {
           </div>
         )}
 
-        {activeTab === 'accounts' && isCompanyAdmin && (
+        {activeTab === 'accounts' && canAccessAccounts && (
           <div className="flex flex-col gap-6">
             <section>
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -686,7 +716,7 @@ const HRDashboard = () => {
                   <h2 className="text-2xl font-bold text-gray-800">Employee Accounts</h2>
                   <p className="mt-1 text-sm text-slate-500">Manage account access to Job Positions and Candidate Details.</p>
                 </div>
-                <button type="button" onClick={() => setEmployeeCreateOpen(true)} className="inline-flex items-center gap-2 rounded bg-brand-dark-green px-4 py-2.5 text-sm font-semibold text-white hover:bg-opacity-90">
+                <button type="button" onClick={openCreateEmployee} className="inline-flex items-center gap-2 rounded bg-brand-dark-green px-4 py-2.5 text-sm font-semibold text-white hover:bg-opacity-90">
                   <Users size={16} /> Add employee
                 </button>
               </div>
@@ -697,15 +727,16 @@ const HRDashboard = () => {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[600px] border-collapse text-left text-sm">
-                    <thead><tr className="border-b text-xs uppercase text-slate-500"><th className="px-3 py-3">Name</th><th className="px-3 py-3">Employee ID</th><th className="px-3 py-3">Login email</th><th className="px-3 py-3">Access</th><th className="px-3 py-3 text-right">Actions</th></tr></thead>
+                    <thead><tr className="border-b text-xs uppercase text-slate-500"><th className="px-3 py-3">Name</th><th className="px-3 py-3">Employee ID</th><th className="px-3 py-3">Position</th><th className="px-3 py-3">Login email</th><th className="px-3 py-3">Access</th><th className="px-3 py-3 text-right">Actions</th></tr></thead>
                     <tbody>
                       {employees.map((employee) => (
                         <tr key={employee.id} className="border-b border-slate-100 text-slate-700 last:border-0">
                           <td className="px-3 py-3 font-medium text-slate-900">{employee.name}</td>
                           <td className="px-3 py-3">{employee.employeeId}</td>
+                          <td className="px-3 py-3">{employee.position}</td>
                           <td className="px-3 py-3">{employee.email}</td>
-                          <td className="px-3 py-3">{employee.permissions.map((permission) => permission === 'jobs' ? 'Jobs' : 'Candidates').join(', ')}</td>
-                          <td className="px-3 py-3 text-right"><button type="button" title="Delete employee" aria-label={`Delete ${employee.name}`} disabled={busyEmployeeId === employee.id} onClick={() => handleDeleteEmployee(employee)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button></td>
+                          <td className="px-3 py-3">{employee.permissions.map((permission) => ({ jobs: 'Jobs', candidates: 'Candidates', accounts: 'Employee Accounts', settings: 'Settings' }[permission] || permission)).join(', ')}</td>
+                          <td className="px-3 py-3 text-right"><div className="flex justify-end gap-1"><button type="button" title="Edit employee" aria-label={`Edit ${employee.name}`} onClick={() => openEditEmployee(employee)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Pencil size={16} /></button><button type="button" title="Delete employee" aria-label={`Delete ${employee.name}`} disabled={busyEmployeeId === employee.id} onClick={() => handleDeleteEmployee(employee)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button></div></td>
                         </tr>
                       ))}
                     </tbody>
@@ -716,10 +747,10 @@ const HRDashboard = () => {
           </div>
         )}
 
-        {activeTab === 'settings' && isCompanyAdmin && (
+        {activeTab === 'settings' && canAccessSettings && (
           <div className="grid gap-4 sm:grid-cols-3">
             {[
-              ['company', 'Company settings', 'Company name, employee email domain and default access.'],
+              ['company', 'Company Info', 'Company name and employee email domain.'],
               ['email', 'Email templates', 'Create and manage candidate mail templates.'],
               ['job-template', 'Job download template', 'Upload the CSV file used by Template.'],
             ].map(([key, title, description]) => (
@@ -732,11 +763,11 @@ const HRDashboard = () => {
         )}
       </div>
 
-      {settingsDialog && isCompanyAdmin && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={settingsDialog === 'company' ? 'Company settings' : settingsDialog === 'email' ? 'Email templates' : 'Job download template'}>
+      {settingsDialog && canAccessSettings && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={settingsDialog === 'company' ? 'Company Info' : settingsDialog === 'email' ? 'Email templates' : 'Job download template'}>
           <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-              <h2 className="font-semibold text-slate-800">{settingsDialog === 'company' ? 'Company settings' : settingsDialog === 'email' ? 'Email templates' : 'Job download template'}</h2>
+              <h2 className="font-semibold text-slate-800">{settingsDialog === 'company' ? 'Company Info' : settingsDialog === 'email' ? 'Email templates' : 'Job download template'}</h2>
               <button type="button" title="Close settings" aria-label="Close settings" onClick={() => setSettingsDialog(null)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
             </div>
             <div className="overflow-y-auto p-5">
@@ -749,13 +780,8 @@ const HRDashboard = () => {
                     <label className="auth-field">Employee email domain
                       <input required type="text" placeholder="company.com" value={companySettings.employeeEmailDomain} onChange={(event) => setCompanySettings({ ...companySettings, employeeEmailDomain: event.target.value })} />
                     </label>
-                    <fieldset className="flex flex-col gap-3 rounded border border-slate-200 p-3">
-                      <legend className="px-1 text-xs font-semibold text-slate-600">Default access for new employees</legend>
-                      <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={companySettings.defaultEmployeePermissions.includes('jobs')} onChange={() => toggleDefaultPermission('jobs')} /> Job Positions</label>
-                      <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={companySettings.defaultEmployeePermissions.includes('candidates')} onChange={() => toggleDefaultPermission('candidates')} /> Candidate Details</label>
-                    </fieldset>
                     <p className="text-xs text-slate-500">Changing the domain affects future employee accounts only; existing login emails stay the same.</p>
-                    <button type="submit" disabled={settingsSaving} className="w-fit rounded bg-brand-dark-green px-4 py-2.5 text-sm font-semibold text-white hover:bg-opacity-90 disabled:opacity-60">{settingsSaving ? 'Saving...' : 'Save company settings'}</button>
+                    <button type="submit" disabled={settingsSaving} className="w-fit rounded bg-brand-dark-green px-4 py-2.5 text-sm font-semibold text-white hover:bg-opacity-90 disabled:opacity-60">{settingsSaving ? 'Saving...' : 'Save Company Info'}</button>
                   </form>
                 )
               )}
@@ -814,14 +840,14 @@ const HRDashboard = () => {
       )}
 
       {employeeCreateOpen && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Create employee account">
-          <form onSubmit={handleCreateEmployee} className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-y-auto rounded-lg bg-white shadow-2xl">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={editingEmployee ? 'Edit employee account' : 'Create employee account'}>
+          <form onSubmit={handleSaveEmployee} className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-y-auto rounded-lg bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
-                <h2 className="font-semibold text-slate-800">Create employee account</h2>
+                <h2 className="font-semibold text-slate-800">{editingEmployee ? 'Edit employee account' : 'Create employee account'}</h2>
                 <p className="mt-1 text-sm text-slate-500">Login email domain: @{companySettings.employeeEmailDomain}</p>
               </div>
-              <button type="button" aria-label="Close employee form" onClick={() => setEmployeeCreateOpen(false)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
+              <button type="button" aria-label="Close employee form" onClick={() => { setEmployeeCreateOpen(false); setEditingEmployee(null); }} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
             </div>
             <div className="flex flex-col gap-4 p-5">
               <label className="auth-field">Employee name
@@ -830,21 +856,26 @@ const HRDashboard = () => {
               <label className="auth-field">Employee ID
                 <input required pattern="[A-Za-z0-9_-]+" title="Use letters, numbers, hyphens or underscores" value={employeeForm.employeeId} onChange={(event) => setEmployeeForm({ ...employeeForm, employeeId: event.target.value })} />
               </label>
+              <label className="auth-field">Position
+                <input required value={employeeForm.position} onChange={(event) => setEmployeeForm({ ...employeeForm, position: event.target.value })} />
+              </label>
               <label className="auth-field">Login email
-                <input readOnly value={`${employeeForm.employeeId.toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'employee'}@${companySettings.employeeEmailDomain}`} />
+                <input readOnly value={`${employeeForm.name.trim().split(/\s+/)[0]?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'employee'}${employeeForm.employeeId.toLowerCase().replace(/[^a-z0-9._-]/g, '')}@${companySettings.employeeEmailDomain}`} />
               </label>
               <label className="auth-field">Initial password
-                <input required minLength={8} type="password" autoComplete="new-password" value={employeeForm.password} onChange={(event) => setEmployeeForm({ ...employeeForm, password: event.target.value })} />
+                <input required={!editingEmployee} minLength={8} type="password" autoComplete="new-password" placeholder={editingEmployee ? 'Leave blank to keep current password' : ''} value={employeeForm.password} onChange={(event) => setEmployeeForm({ ...employeeForm, password: event.target.value })} />
               </label>
               <fieldset className="flex flex-col gap-3 rounded border border-slate-200 p-3">
                 <legend className="px-1 text-xs font-semibold text-slate-600">Dashboard access</legend>
                 <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={employeeForm.permissions.includes('jobs')} onChange={() => toggleEmployeePermission('jobs')} /> Job Positions</label>
                 <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={employeeForm.permissions.includes('candidates')} onChange={() => toggleEmployeePermission('candidates')} /> Candidate Details</label>
+                <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={employeeForm.permissions.includes('accounts')} onChange={() => toggleEmployeePermission('accounts')} /> Employee Accounts</label>
+                <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={employeeForm.permissions.includes('settings')} onChange={() => toggleEmployeePermission('settings')} /> Settings</label>
               </fieldset>
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
-              <button type="button" onClick={() => setEmployeeCreateOpen(false)} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button type="submit" disabled={creatingEmployee} className="rounded bg-brand-dark-green px-4 py-2 text-sm font-semibold text-white hover:bg-opacity-90 disabled:opacity-60">{creatingEmployee ? 'Creating...' : 'Create employee'}</button>
+              <button type="button" onClick={() => { setEmployeeCreateOpen(false); setEditingEmployee(null); }} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button type="submit" disabled={creatingEmployee} className="rounded bg-brand-dark-green px-4 py-2 text-sm font-semibold text-white hover:bg-opacity-90 disabled:opacity-60">{creatingEmployee ? 'Saving...' : editingEmployee ? 'Save changes' : 'Create employee'}</button>
             </div>
           </form>
         </div>
@@ -861,7 +892,7 @@ const HRDashboard = () => {
               <button type="button" title="Close candidates" aria-label="Close candidates" onClick={() => setCandidateModalOpen(false)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
             </div>
             <div className="overflow-auto p-4">
-              <table className="w-full min-w-[1000px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1200px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b text-xs uppercase text-gray-500">
                     <th className="px-3 py-3 font-semibold">Candidate</th>
@@ -870,6 +901,7 @@ const HRDashboard = () => {
                     <th className="px-3 py-3 font-semibold">Outreach</th>
                     <th className="px-3 py-3 font-semibold">Registered</th>
                     <th className="px-3 py-3 font-semibold">Resume</th>
+                    <th className="px-3 py-3 font-semibold">Notes</th>
                     <th className="px-3 py-3 text-right font-semibold">Actions</th>
                   </tr>
                 </thead>
@@ -892,6 +924,7 @@ const HRDashboard = () => {
                       <td className="px-3 py-3">{candidate.resumeAvailable ? (
                         <button type="button" title="View resume" aria-label={`View ${candidate.name}'s resume`} onClick={() => handleViewResume(candidate)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Eye size={17} /></button>
                       ) : <span className="text-slate-400">Not uploaded</span>}</td>
+                      <td className="px-3 py-3"><button type="button" title="View or write note" aria-label={`${isCompanyAdmin ? 'Write' : 'View'} note for ${candidate.name}`} onClick={() => setNoteCandidate(candidate)} className={`rounded p-2 hover:bg-emerald-50 ${candidate.notes?.trim() ? 'text-emerald-600' : 'text-slate-400'}`}><FilePenLine size={17} /></button></td>
                       <td className="px-3 py-3"><div className="flex justify-end gap-1">
                         <button type="button" title="Create email" aria-label={`Email ${candidate.name}`} onClick={() => openMailComposer(candidate)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Mail size={16} /></button>
                         {isCompanyAdmin && <button type="button" title="Delete candidate" aria-label={`Delete ${candidate.name}`} disabled={busyCandidateId === candidate.id} onClick={() => handleDeleteCandidate(candidate)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button>}
@@ -900,6 +933,22 @@ const HRDashboard = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {noteCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={`${isCompanyAdmin ? 'Write' : 'View'} note for ${noteCandidate.name}`}>
+          <div className="flex w-full max-w-xl flex-col rounded-lg bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div><h2 className="font-semibold text-slate-800">Resume note</h2><p className="mt-1 text-sm text-slate-500">{noteCandidate.name}</p></div>
+              <button type="button" title="Close note" aria-label="Close note" onClick={() => setNoteCandidate(null)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
+            </div>
+            <div className="p-5"><textarea autoFocus readOnly={!isCompanyAdmin} value={noteCandidate.notes || ''} onChange={(event) => setNoteCandidate((current) => ({ ...current, notes: event.target.value }))} placeholder="Add points regarding the resume" rows={8} className="w-full resize-y rounded border border-slate-300 px-3 py-2 text-sm leading-6 text-slate-800 read-only:bg-slate-50" /></div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+              <button type="button" onClick={() => setNoteCandidate(null)} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Close</button>
+              {isCompanyAdmin && <button type="button" disabled={savingNotesCandidateId === noteCandidate.id} onClick={async () => { if (await handleSaveCandidateNotes(noteCandidate)) setNoteCandidate(null); }} className="inline-flex items-center gap-2 rounded bg-brand-dark-green px-4 py-2 text-sm font-semibold text-white hover:bg-opacity-90 disabled:opacity-60"><Save size={16} /> {savingNotesCandidateId === noteCandidate.id ? 'Saving...' : 'Save note'}</button>}
             </div>
           </div>
         </div>
