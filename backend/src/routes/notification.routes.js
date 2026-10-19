@@ -1,10 +1,10 @@
 import express from 'express';
 import { listNotifications, markNotificationRead } from '../controllers/notification.controller.js';
-import { requireCompanyAccess } from '../middlewares/auth.middleware.js';
+import { requireNotificationAccess } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-router.get('/', requireCompanyAccess(['jobs', 'candidates']), listNotifications);
-router.patch('/:id/read', requireCompanyAccess(['jobs', 'candidates']), markNotificationRead);
+router.get('/', requireNotificationAccess, listNotifications);
+router.patch('/:id/read', requireNotificationAccess, markNotificationRead);
 
 export default router;

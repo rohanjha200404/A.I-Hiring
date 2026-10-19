@@ -109,7 +109,9 @@ export const updateCandidateWorkflow = async (req, res) => {
 
     if (req.body.stage && req.body.stage !== 'Pending') {
       await Notification.create({
-        companyAdminId: req.auth.companyAdminId || req.auth.id,
+        companyAdminId: null,
+        recipientId: candidate.id,
+        audience: 'candidate',
         type: 'candidate',
         title: `Candidate ${req.body.stage.toLowerCase()}`,
         message: `${candidate.name} was moved to ${req.body.stage}.`,

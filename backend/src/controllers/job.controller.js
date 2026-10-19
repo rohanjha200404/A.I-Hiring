@@ -5,6 +5,50 @@ import { Job } from '../models/job.model.js';
 import { CandidateResume } from '../models/candidate-resume.model.js';
 import { CompanyJobTemplate } from '../models/company-job-template.model.js';
 import { Notification } from '../models/notification.model.js';
+import { JobUploadHistory } from '../models/job-upload-history.model.js';
+import { User } from '../models/user.model.js';
+import { Employee } from '../models/employee.model.js';
+
+const getUploaderName = async (req) => {
+  const user = await User.findByPk(req.auth.id, { attributes: ['name'] });
+  if (user) return user.name;
+  const employee = await Employee.findByPk(req.auth.id, { attributes: ['name', 'email'] });
+  return employee?.name || employee?.email || 'Unknown user';
+};
+
+const startUploadHistory = async (req, uploadType, filename) => JobUploadHistory.create({
+  companyAdminId: req.auth.companyAdminId || req.auth.id,
+  uploadedById: req.auth.id,
+  uploadedByName: await getUploaderName(req),
+  uploadType,
+  filename,
+  status: 'processing',
+});
+
+const finishUploadHistory = async (history, updates) => {
+  if (history) await history.update(updates);
+};
+
+const readCsvHeaders = (content) => new Promise((resolve, reject) => {
+  let foundHeaders = false;
+  const parser = csvParser({ mapHeaders: ({ header }) => header.trim().toLowerCase() });
+  parser.once('headers', (headers) => {
+    foundHeaders = true;
+    resolve(headers);
+  });
+  parser.once('error', reject);
+  parser.once('end', () => {
+    if (!foundHeaders) resolve([]);
+  });
+  Readable.from([content]).pipe(parser);
+});
+
+const validateTemplateHeaders = (headers) => {
+  const duplicates = headers.filter((header, index) => headers.indexOf(header) !== index);
+  if (headers.length === 0) return 'The template must contain a header row.';
+  if (duplicates.length > 0) return `The template contains duplicate column: ${duplicates[0]}.`;
+  return null;
+};
 
 export const uploadJobsCSV = async (req, res) => {
   if (!req.file) {
@@ -12,34 +56,79 @@ export const uploadJobsCSV = async (req, res) => {
   }
 
   const jobs = [];
+  let history;
   try {
+    history = await startUploadHistory(req, 'jobs', req.file.originalname);
+    const companyAdminId = req.auth.companyAdminId || req.auth.id;
+    const savedTemplate = await CompanyJobTemplate.findOne({ where: { companyAdminId } });
+    const templateContent = savedTemplate?.content || defaultJobTemplate;
+    const requiredHeaders = await readCsvHeaders(templateContent);
+    const templateError = validateTemplateHeaders(requiredHeaders);
+    if (templateError) {
+      await finishUploadHistory(history, { status: 'failed', message: templateError });
+      return res.status(400).json({ message: templateError, uploadId: history.id });
+    }
+
+    const uploadedHeaders = [];
+    const rows = [];
     await new Promise((resolve, reject) => {
       fs.createReadStream(req.file.path)
         .pipe(csvParser({ mapHeaders: ({ header }) => header.trim().toLowerCase() }))
-        .on('data', (row) => {
-          const title = row.title?.trim();
-          if (title) {
-            jobs.push({
-              title,
-              department: row.department?.trim() || 'General',
-              experience_required: parseInt(row.experience_required, 10) || 0,
-              course_required: row.course_required?.trim() || '',
-              skills_required: row.skills_required?.trim() || '',
-            });
-          }
-        })
+        .on('headers', (headers) => uploadedHeaders.push(...headers))
+        .on('data', (row) => rows.push(row))
         .on('end', resolve)
         .on('error', reject);
     });
 
+    if (JSON.stringify(uploadedHeaders) !== JSON.stringify(requiredHeaders)) {
+      const message = `Job sheet columns must exactly match the active template: ${requiredHeaders.join(', ')}.`;
+      await finishUploadHistory(history, { status: 'failed', message, details: { requiredHeaders, uploadedHeaders } });
+      return res.status(400).json({
+        message,
+        uploadId: history.id,
+        requiredHeaders,
+        uploadedHeaders,
+      });
+    }
+
+    for (const [index, row] of rows.entries()) {
+      const missingHeader = requiredHeaders.find((header) => !String(row[header] ?? '').trim());
+      if (missingHeader) {
+        const message = `Row ${index + 2} is missing a value for required field: ${missingHeader}.`;
+        await finishUploadHistory(history, { status: 'failed', message, details: { row: index + 2, missingHeader } });
+        return res.status(400).json({ message, uploadId: history.id });
+      }
+
+      const experience = Number(row.experience_required);
+      if (requiredHeaders.includes('experience_required') && (!Number.isInteger(experience) || experience < 0)) {
+        const message = `Row ${index + 2} must contain a non-negative whole number for experience_required.`;
+        await finishUploadHistory(history, { status: 'failed', message });
+        return res.status(400).json({ message, uploadId: history.id });
+      }
+
+      const title = row.title?.trim() || row.position?.trim() || row.job_title?.trim() || row[requiredHeaders[0]]?.trim();
+      jobs.push({
+        title,
+        department: row.department?.trim() || 'General',
+        experience_required: requiredHeaders.includes('experience_required') ? experience : 0,
+        course_required: row.course_required?.trim() || '',
+        skills_required: row.skills_required?.trim() || '',
+        customFields: Object.fromEntries(requiredHeaders.map((header) => [header, row[header].trim()])),
+      });
+    }
+
     if (jobs.length === 0) {
-      return res.status(400).json({ message: 'No valid jobs found. Include a title column with at least one job.' });
+      const message = 'No valid jobs found in the uploaded sheet.';
+      await finishUploadHistory(history, { status: 'failed', message });
+      return res.status(400).json({ message, uploadId: history.id });
     }
 
     await Job.bulkCreate(jobs);
+    await finishUploadHistory(history, { status: 'success', message: 'Jobs uploaded successfully.', rowCount: jobs.length });
     try {
       await Notification.create({
-        companyAdminId: req.auth.companyAdminId || req.auth.id,
+        companyAdminId,
+        audience: 'recruiter',
         type: 'job',
         title: 'Jobs uploaded',
         message: `${jobs.length} job ${jobs.length === 1 ? 'position was' : 'positions were'} added: ${jobs.slice(0, 3).map((job) => job.title).join(', ')}${jobs.length > 3 ? ', and more' : ''}.`,
@@ -47,9 +136,10 @@ export const uploadJobsCSV = async (req, res) => {
     } catch (notificationError) {
       console.error('Could not create job notification:', notificationError.message);
     }
-    res.status(200).json({ message: 'Jobs successfully imported!', count: jobs.length });
+    res.status(200).json({ message: 'Jobs successfully imported!', count: jobs.length, uploadId: history.id });
   } catch (error) {
-    res.status(500).json({ message: 'Error importing jobs from CSV', error: error.message });
+    await finishUploadHistory(history, { status: 'failed', message: error.message });
+    res.status(500).json({ message: 'Error importing jobs from CSV', error: error.message, uploadId: history?.id });
   } finally {
     if (req.file?.path && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
@@ -74,37 +164,44 @@ export const downloadTemplate = async (req, res) => {
   }
 };
 
+export const getTemplateSchema = async (req, res) => {
+  try {
+    const companyAdminId = req.auth.companyAdminId || req.auth.id;
+    const template = await CompanyJobTemplate.findOne({ where: { companyAdminId } });
+    const content = template?.content || defaultJobTemplate;
+    const headers = await readCsvHeaders(content);
+    res.json({ filename: template?.filename || 'job_template.csv', headers });
+  } catch (error) {
+    res.status(500).json({ message: 'Could not load the job template schema', error: error.message });
+  }
+};
+
 export const uploadJobTemplate = async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'Choose a CSV template to upload' });
 
+  let history;
   try {
-    const headers = await new Promise((resolve, reject) => {
-      let foundHeaders = false;
-      const parser = csvParser({ mapHeaders: ({ header }) => header.trim().toLowerCase() });
-      parser.once('headers', (parsedHeaders) => {
-        foundHeaders = true;
-        resolve(parsedHeaders);
-      });
-      parser.once('error', reject);
-      parser.once('end', () => {
-        if (!foundHeaders) resolve([]);
-      });
-      Readable.from([req.file.buffer]).pipe(parser);
-    });
+    history = await startUploadHistory(req, 'template', req.file.originalname);
+    const content = req.file.buffer.toString('utf8');
+    const headers = await readCsvHeaders(content);
 
-    if (!headers.includes('title')) {
-      return res.status(400).json({ message: 'The template must include a title column' });
+    const templateError = validateTemplateHeaders(headers);
+    if (templateError) {
+      await finishUploadHistory(history, { status: 'failed', message: templateError });
+      return res.status(400).json({ message: templateError, uploadId: history.id });
     }
 
     const companyAdminId = req.auth.id;
     const [template] = await CompanyJobTemplate.findOrCreate({
       where: { companyAdminId },
-      defaults: { companyAdminId, filename: req.file.originalname, content: req.file.buffer.toString('utf8') },
+      defaults: { companyAdminId, filename: req.file.originalname, content },
     });
-    await template.update({ filename: req.file.originalname, content: req.file.buffer.toString('utf8') });
-    res.json({ message: 'Job download template updated', filename: template.filename });
+    await template.update({ filename: req.file.originalname, content });
+    await finishUploadHistory(history, { status: 'success', message: 'Job upload template updated.' });
+    res.json({ message: 'Job upload template updated', filename: template.filename, headers, uploadId: history.id });
   } catch (error) {
-    res.status(400).json({ message: 'Could not read CSV template', error: error.message });
+    await finishUploadHistory(history, { status: 'failed', message: error.message });
+    res.status(400).json({ message: 'Could not read CSV template', error: error.message, uploadId: history?.id });
   }
 };
 
@@ -167,6 +264,7 @@ export const updateJob = async (req, res) => {
       experience_required: experienceRequired,
       course_required: req.body.course_required?.trim() || '',
       skills_required: req.body.skills_required?.trim() || '',
+      customFields: req.body.customFields || job.customFields || {},
     });
 
     res.json(job);

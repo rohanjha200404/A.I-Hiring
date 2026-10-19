@@ -82,6 +82,7 @@ export const parseResume = async (req, res) => {
       const candidate = await User.findByPk(req.auth.id, { attributes: ['name'] });
       await Notification.create({
         companyAdminId: null,
+        audience: 'recruiter',
         type: 'candidate',
         title: 'New resume uploaded',
         message: `${candidate?.name || 'A candidate'} submitted a resume.`,

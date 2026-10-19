@@ -2,6 +2,15 @@ import { Op } from 'sequelize';
 import { Notification } from '../models/notification.model.js';
 
 const notificationScope = (req) => {
+  if (req.auth.role === 'Candidate') {
+    return {
+      where: {
+        audience: 'candidate',
+        recipientId: req.auth.id,
+      },
+    };
+  }
+
   const companyAdminId = req.auth.companyAdminId || req.auth.id;
   const allowedTypes = req.auth.role === 'HR' || req.auth.role === 'Admin'
     ? ['job', 'candidate']
@@ -10,19 +19,22 @@ const notificationScope = (req) => {
       ...(req.auth.permissions.includes('candidates') ? ['candidate'] : []),
     ];
 
-  return { companyAdminId, allowedTypes };
+  return {
+    where: {
+      audience: 'recruiter',
+      type: { [Op.in]: allowedTypes },
+      [Op.or]: [{ companyAdminId }, { companyAdminId: null }],
+    },
+  };
 };
 
 export const listNotifications = async (req, res) => {
   try {
-    const { companyAdminId, allowedTypes } = notificationScope(req);
-    if (allowedTypes.length === 0) return res.json([]);
+    const { where } = notificationScope(req);
+    if (where.type?.[Op.in]?.length === 0) return res.json([]);
 
     const notifications = await Notification.findAll({
-      where: {
-        type: { [Op.in]: allowedTypes },
-        [Op.or]: [{ companyAdminId }, { companyAdminId: null }],
-      },
+      where,
       order: [['createdAt', 'DESC']],
       limit: 30,
     });
@@ -34,12 +46,11 @@ export const listNotifications = async (req, res) => {
 
 export const markNotificationRead = async (req, res) => {
   try {
-    const { companyAdminId, allowedTypes } = notificationScope(req);
+    const { where } = notificationScope(req);
     const notification = await Notification.findOne({
       where: {
         id: req.params.id,
-        type: { [Op.in]: allowedTypes },
-        [Op.or]: [{ companyAdminId }, { companyAdminId: null }],
+        ...where,
       },
     });
     if (!notification) return res.status(404).json({ message: 'Notification not found' });

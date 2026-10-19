@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { UploadCloud, Download, Users, Briefcase, Pencil, Trash2, Save, X, Eye, Mail, Settings, FilePenLine } from 'lucide-react';
+import { UploadCloud, Download, Users, Briefcase, Pencil, Trash2, Save, X, Eye, Mail, Settings, FilePenLine, Plus, History } from 'lucide-react';
 import api from '../../api/axios.config.js';
 import { toast } from 'sonner';
 
@@ -19,6 +19,17 @@ const topCommonLabels = (values, limit = 3) => {
     }
   }
   return [...counts.values()].sort((first, second) => second.count - first.count).slice(0, limit);
+};
+
+const getJobField = (job, header) => {
+  const standardValue = {
+    title: job.title,
+    department: job.department,
+    experience_required: job.experience_required,
+    course_required: job.course_required,
+    skills_required: job.skills_required,
+  }[header];
+  return job.customFields?.[header] ?? standardValue ?? '';
 };
 
 const readSessionUser = () => {
@@ -74,6 +85,11 @@ const HRDashboard = () => {
   const [jobTemplateFile, setJobTemplateFile] = useState(null);
   const [jobTemplateUploading, setJobTemplateUploading] = useState(false);
   const [uploadedJobTemplateName, setUploadedJobTemplateName] = useState('');
+  const [uploadedJobTemplateHeaders, setUploadedJobTemplateHeaders] = useState([]);
+  const [addJobOpen, setAddJobOpen] = useState(false);
+  const [uploadReview, setUploadReview] = useState(null);
+  const [uploadHistory, setUploadHistory] = useState([]);
+  const [uploadHistoryLoading, setUploadHistoryLoading] = useState(false);
   const [jobsModalOpen, setJobsModalOpen] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -104,6 +120,16 @@ const HRDashboard = () => {
       toast.error(error.response?.data?.message || 'Could not load uploaded jobs.');
     } finally {
       setJobsLoading(false);
+    }
+  };
+
+  const loadJobTemplateSchema = async () => {
+    try {
+      const response = await api.get('/jobs/template/schema');
+      setUploadedJobTemplateName(response.data.filename);
+      setUploadedJobTemplateHeaders(response.data.headers || []);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not load the active job template.');
     }
   };
 
@@ -146,6 +172,18 @@ const HRDashboard = () => {
     }
   };
 
+  const loadUploadHistory = async () => {
+    setUploadHistoryLoading(true);
+    try {
+      const response = await api.get('/jobs/history');
+      setUploadHistory(response.data);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not load upload history.');
+    } finally {
+      setUploadHistoryLoading(false);
+    }
+  };
+
   const loadCompanySettings = async () => {
     setSettingsLoading(true);
     try {
@@ -163,6 +201,10 @@ const HRDashboard = () => {
   }, [canAccessJobs]);
 
   useEffect(() => {
+    if (canAccessJobs) loadJobTemplateSchema();
+  }, [canAccessJobs]);
+
+  useEffect(() => {
     if (canAccessAccounts) loadEmployees();
   }, [canAccessAccounts]);
 
@@ -173,6 +215,10 @@ const HRDashboard = () => {
   useEffect(() => {
     if (activeTab === 'settings' && isCompanyAdmin) loadMailTemplates();
   }, [activeTab, isCompanyAdmin]);
+
+  useEffect(() => {
+    if (activeTab === 'settings' && canAccessSettings) loadUploadHistory();
+  }, [activeTab, canAccessSettings]);
 
   useEffect(() => {
     if (activeTab === 'candidates' && canAccessCandidates && !candidatesLoaded && !candidatesLoading) {
@@ -210,8 +256,9 @@ const HRDashboard = () => {
     try {
       const response = await api.post('/jobs/template', formData);
       setUploadedJobTemplateName(response.data.filename);
+      setUploadedJobTemplateHeaders(response.data.headers || []);
       setJobTemplateFile(null);
-      toast.success('Job download template updated.');
+      toast.success(`Template saved. Upload ID: ${response.data.uploadId}`);
     } catch (error) {
       toast.error(error.response?.data?.message || 'Could not upload the job CSV template.');
     } finally {
@@ -246,7 +293,7 @@ const HRDashboard = () => {
         },
       });
       setUploadStatus(`Success: ${res.data.message} (${res.data.count} jobs)`);
-      toast.success(`${res.data.count} jobs uploaded successfully.`);
+      toast.success(`${res.data.count} jobs uploaded. Upload ID: ${res.data.uploadId}`);
       await loadJobs();
     } catch (error) {
       if (controller.signal.aborted || error.code === 'ERR_CANCELED') {
@@ -254,7 +301,21 @@ const HRDashboard = () => {
         toast.info('Job upload canceled.');
         return;
       }
-      const message = error.response?.data?.message || 'Could not reach the server. Check that the backend is running.';
+      const uploadId = error.response?.data?.uploadId;
+      const uploadDetails = error.response?.data;
+      if (uploadDetails?.requiredHeaders && uploadDetails?.uploadedHeaders) {
+        const requiredHeaders = uploadDetails.requiredHeaders;
+        const uploadedHeaders = uploadDetails.uploadedHeaders;
+        setUploadReview({
+          uploadId,
+          message: uploadDetails.message,
+          fields: [
+            ...requiredHeaders.filter((header) => !uploadedHeaders.includes(header)).map((header) => ({ header, status: 'Missing from uploaded sheet' })),
+            ...uploadedHeaders.filter((header) => !requiredHeaders.includes(header)).map((header) => ({ header, status: 'Not in active template' })),
+          ],
+        });
+      }
+      const message = `${error.response?.data?.message || 'Could not reach the server. Check that the backend is running.'}${uploadId ? ` Upload ID: ${uploadId}` : ''}`;
       setUploadStatus(`Error: ${message}`);
       toast.error(message);
     } finally {
@@ -268,28 +329,39 @@ const HRDashboard = () => {
     uploadControllerRef.current?.abort();
   };
 
+  const handleSaveUploadReview = () => {
+    if (!uploadReview) return;
+    const blob = new Blob([JSON.stringify(uploadReview, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `job-upload-review-${uploadReview.uploadId || 'report'}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const startEditing = (job) => {
     setEditingJobId(job.id);
-    setEditValues({
-      title: job.title,
-      department: job.department || '',
-      experience_required: job.experience_required ?? 0,
-      course_required: job.course_required || '',
-      skills_required: job.skills_required || '',
-    });
+    setEditValues(Object.fromEntries(jobTableHeaders.map((header) => [header, getJobField(job, header)])));
   };
 
   const handleSaveJob = async (jobId) => {
-    if (!editValues.title?.trim()) {
-      toast.error('Job title is required.');
+    const currentJob = jobs.find((job) => job.id === jobId);
+    const title = editValues.title?.trim() || editValues.position?.trim() || editValues.job_title?.trim() || currentJob?.title;
+    if (!title) {
+      toast.error('Add a title or position before saving.');
       return;
     }
 
     setBusyJobId(jobId);
     try {
       const response = await api.put(`/jobs/${jobId}`, {
-        ...editValues,
-        experience_required: Number(editValues.experience_required),
+        title,
+        department: editValues.department,
+        experience_required: Number(editValues.experience_required || 0),
+        course_required: editValues.course_required,
+        skills_required: editValues.skills_required,
+        customFields: editValues,
       });
       setJobs((currentJobs) => currentJobs.map((job) => job.id === jobId ? response.data : job));
       setEditingJobId(null);
@@ -505,6 +577,9 @@ const HRDashboard = () => {
     interviews: candidates.filter((candidate) => candidate.stage === 'Interview').length,
     mailPending: candidates.filter((candidate) => candidate.outreachStatus !== 'Contacted').length,
   };
+  const jobTableHeaders = uploadedJobTemplateHeaders.length
+    ? uploadedJobTemplateHeaders
+    : ['title', 'department', 'experience_required', 'course_required', 'skills_required'];
 
   return (
     <div className="bg-white rounded-lg shadow min-h-[70vh]">
@@ -546,31 +621,23 @@ const HRDashboard = () => {
       <div className="p-8">
         {activeTab === 'jobs' && canAccessJobs && (
           <div className="flex flex-col gap-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-xl font-bold text-gray-800">Job Positions Management</h2>
               <div className="flex flex-wrap items-center gap-2">
-                <button 
-                  onClick={handleDownloadTemplate}
-                  className="flex items-center gap-2 rounded border border-brand-dark-green bg-white px-3 py-2 text-sm text-brand-dark-green shadow-sm transition hover:bg-brand-green"
-                >
-                  <Download size={16} /> Template
-                </button>
-
-                {uploading ? (
-                  <button type="button" onClick={handleCancelUpload} className="flex items-center gap-2 rounded border border-red-200 bg-white px-3 py-2 text-sm text-red-700 shadow-sm transition hover:bg-red-50">
-                    <X size={16} /> Cancel upload
-                  </button>
-                ) : (
-                  <label className="flex cursor-pointer items-center gap-2 rounded bg-brand-dark-green px-3 py-2 text-sm text-white shadow-sm transition hover:bg-opacity-90">
-                    <UploadCloud size={16} /> Upload CSV
-                    <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileUpload} />
-                  </label>
-                )}
+                <button type="button" onClick={() => setAddJobOpen(true)} className="flex items-center gap-2 rounded bg-brand-dark-green px-3 py-2 text-sm text-white shadow-sm transition hover:bg-opacity-90"><Plus size={16} /> Add job</button>
               </div>
             </div>
             {uploadStatus && (
               <div aria-live="polite" className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-gray-700">
                 {uploadStatus}
+              </div>
+            )}
+
+            {uploadedJobTemplateName && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                <p className="font-semibold">Active job upload format: {uploadedJobTemplateName}</p>
+                <p className="mt-1">Every job CSV must use these columns in this exact order, with a value in each field:</p>
+                <p className="mt-2 font-mono text-xs">{uploadedJobTemplateHeaders.join(' | ')}</p>
               </div>
             )}
 
@@ -626,51 +693,8 @@ const HRDashboard = () => {
                   </div>
                   <div className="overflow-auto p-4">
                     <table className="w-full min-w-[720px] border-collapse text-left text-sm">
-                    <thead>
-                      <tr className="border-b text-xs uppercase text-gray-500">
-                        <th className="px-3 py-3 font-semibold">Position</th>
-                        <th className="px-3 py-3 font-semibold">Department</th>
-                        <th className="px-3 py-3 font-semibold">Experience</th>
-                        <th className="px-3 py-3 font-semibold">Course</th>
-                        <th className="px-3 py-3 font-semibold">Skills</th>
-                        <th className="px-3 py-3 text-right font-semibold">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {jobs.map((job) => (
-                        <tr key={job.id} className="border-b border-slate-100 text-slate-700 last:border-0">
-                          {editingJobId === job.id ? (
-                            <>
-                              <td className="px-2 py-2"><input aria-label="Job title" className="w-36 rounded border border-slate-300 px-2 py-1.5" value={editValues.title} onChange={(event) => setEditValues({ ...editValues, title: event.target.value })} /></td>
-                              <td className="px-2 py-2"><input aria-label="Department" className="w-28 rounded border border-slate-300 px-2 py-1.5" value={editValues.department} onChange={(event) => setEditValues({ ...editValues, department: event.target.value })} /></td>
-                              <td className="px-2 py-2"><input aria-label="Required experience in years" type="number" min="0" step="1" className="w-20 rounded border border-slate-300 px-2 py-1.5" value={editValues.experience_required} onChange={(event) => setEditValues({ ...editValues, experience_required: event.target.value })} /></td>
-                              <td className="px-2 py-2"><input aria-label="Required course" className="w-28 rounded border border-slate-300 px-2 py-1.5" value={editValues.course_required} onChange={(event) => setEditValues({ ...editValues, course_required: event.target.value })} /></td>
-                              <td className="px-2 py-2"><input aria-label="Required skills" className="w-32 rounded border border-slate-300 px-2 py-1.5" value={editValues.skills_required} onChange={(event) => setEditValues({ ...editValues, skills_required: event.target.value })} /></td>
-                              <td className="px-2 py-2">
-                                <div className="flex justify-end gap-1">
-                                  <button type="button" title="Save changes" aria-label="Save changes" disabled={busyJobId === job.id} onClick={() => handleSaveJob(job.id)} className="rounded p-2 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"><Save size={16} /></button>
-                                  <button type="button" title="Cancel editing" aria-label="Cancel editing" disabled={busyJobId === job.id} onClick={() => setEditingJobId(null)} className="rounded p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X size={16} /></button>
-                                </div>
-                              </td>
-                            </>
-                          ) : (
-                            <>
-                              <td className="px-3 py-3 font-medium text-slate-900">{job.title}</td>
-                              <td className="px-3 py-3">{job.department || 'General'}</td>
-                              <td className="px-3 py-3">{job.experience_required} years</td>
-                              <td className="px-3 py-3">{job.course_required || 'Any'}</td>
-                              <td className="px-3 py-3">{job.skills_required || 'Not specified'}</td>
-                              <td className="px-3 py-3">
-                                <div className="flex justify-end gap-1">
-                                  <button type="button" title="Edit job" aria-label={`Edit ${job.title}`} onClick={() => startEditing(job)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Pencil size={16} /></button>
-                                  <button type="button" title="Delete job" aria-label={`Delete ${job.title}`} disabled={busyJobId === job.id} onClick={() => handleDeleteJob(job)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button>
-                                </div>
-                              </td>
-                            </>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
+                    <thead><tr className="border-b text-xs uppercase text-gray-500">{jobTableHeaders.map((header) => <th key={header} className="px-3 py-3 font-semibold">{header.replaceAll('_', ' ')}</th>)}<th className="px-3 py-3 text-right font-semibold">Actions</th></tr></thead>
+                    <tbody>{jobs.map((job) => <tr key={job.id} className="border-b border-slate-100 text-slate-700 last:border-0">{editingJobId === job.id ? jobTableHeaders.map((header) => <td key={header} className="px-2 py-2"><input aria-label={`Edit ${header}`} className="w-32 rounded border border-slate-300 px-2 py-1.5" value={editValues[header] || ''} onChange={(event) => setEditValues({ ...editValues, [header]: event.target.value })} /></td>) : jobTableHeaders.map((header) => <td key={header} className={`px-3 py-3 ${header === 'title' || header === 'position' ? 'font-medium text-slate-900' : ''}`}>{getJobField(job, header) || '—'}</td>)}<td className="px-3 py-3"><div className="flex justify-end gap-1">{editingJobId === job.id ? <><button type="button" title="Save changes" aria-label="Save changes" disabled={busyJobId === job.id} onClick={() => handleSaveJob(job.id)} className="rounded p-2 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"><Save size={16} /></button><button type="button" title="Cancel editing" aria-label="Cancel editing" disabled={busyJobId === job.id} onClick={() => setEditingJobId(null)} className="rounded p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X size={16} /></button></> : <><button type="button" title="Edit job" aria-label={`Edit ${job.title}`} onClick={() => startEditing(job)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Pencil size={16} /></button><button type="button" title="Delete job" aria-label={`Delete ${job.title}`} disabled={busyJobId === job.id} onClick={() => handleDeleteJob(job)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button></>}</div></td></tr>)}</tbody>
                     </table>
                   </div>
                 </div>
@@ -748,11 +772,12 @@ const HRDashboard = () => {
         )}
 
         {activeTab === 'settings' && canAccessSettings && (
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
               ['company', 'Company Info', 'Company name and employee email domain.'],
               ['email', 'Email templates', 'Create and manage candidate mail templates.'],
-              ['job-template', 'Job download template', 'Upload the CSV file used by Template.'],
+              ['job-template', 'Job upload template', 'Define any required fields for future job uploads.'],
+              ['upload-history', 'Upload history', 'Review job and template upload activity.'],
             ].map(([key, title, description]) => (
               <button key={key} type="button" onClick={() => setSettingsDialog(key)} className="flex min-h-32 flex-col items-start justify-between rounded-lg border border-slate-200 bg-white p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50/40">
                 <Settings size={19} className="text-brand-dark-green" />
@@ -764,10 +789,10 @@ const HRDashboard = () => {
       </div>
 
       {settingsDialog && canAccessSettings && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={settingsDialog === 'company' ? 'Company Info' : settingsDialog === 'email' ? 'Email templates' : 'Job download template'}>
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={settingsDialog === 'company' ? 'Company Info' : settingsDialog === 'email' ? 'Email templates' : settingsDialog === 'upload-history' ? 'Upload history' : 'Job upload template'}>
           <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-              <h2 className="font-semibold text-slate-800">{settingsDialog === 'company' ? 'Company Info' : settingsDialog === 'email' ? 'Email templates' : 'Job download template'}</h2>
+              <h2 className="font-semibold text-slate-800">{settingsDialog === 'company' ? 'Company Info' : settingsDialog === 'email' ? 'Email templates' : settingsDialog === 'upload-history' ? 'Upload history' : 'Job upload template'}</h2>
               <button type="button" title="Close settings" aria-label="Close settings" onClick={() => setSettingsDialog(null)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
             </div>
             <div className="overflow-y-auto p-5">
@@ -823,7 +848,7 @@ const HRDashboard = () => {
 
               {settingsDialog === 'job-template' && (
                 <div className="flex flex-col gap-4">
-                  <p className="text-sm text-slate-500">Upload a CSV with a <span className="font-semibold">title</span> column. This file will be used by Template in Job Positions.</p>
+                  <p className="text-sm text-slate-500">Upload a CSV whose header row defines the required job fields. Any field names are allowed, and every future job sheet must match this format exactly.</p>
                   <label className="auth-field">CSV template file
                     <input type="file" accept=".csv,text/csv" onChange={(event) => setJobTemplateFile(event.target.files?.[0] || null)} />
                   </label>
@@ -834,6 +859,39 @@ const HRDashboard = () => {
                   </button>
                 </div>
               )}
+
+              {settingsDialog === 'upload-history' && (
+                uploadHistoryLoading ? <p className="text-sm text-slate-500">Loading upload history...</p> : uploadHistory.length === 0 ? <p className="text-sm text-slate-500">No job or template uploads yet.</p> : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[680px] border-collapse text-left text-sm">
+                      <thead><tr className="border-b text-xs uppercase text-slate-500"><th className="px-3 py-3">Upload ID</th><th className="px-3 py-3">File</th><th className="px-3 py-3">Type</th><th className="px-3 py-3">Uploaded by</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">When</th></tr></thead>
+                      <tbody>{uploadHistory.map((item) => <tr key={item.id} className="border-b border-slate-100 align-top"><td className="px-3 py-3 font-mono text-xs text-slate-600">{item.id}</td><td className="px-3 py-3 font-medium text-slate-800">{item.filename}</td><td className="px-3 py-3 capitalize">{item.uploadType}</td><td className="px-3 py-3">{item.uploadedByName}</td><td className={`px-3 py-3 font-semibold ${item.status === 'success' ? 'text-emerald-700' : item.status === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>{item.status}{item.rowCount ? ` (${item.rowCount} rows)` : ''}<span className="block max-w-xs text-xs font-normal text-slate-500">{item.message}</span></td><td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()}</td></tr>)}</tbody>
+                    </table>
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {addJobOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Add job">
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><h2 className="font-semibold text-slate-800">Add job</h2><button type="button" title="Close add job" aria-label="Close add job" onClick={() => setAddJobOpen(false)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button></div>
+            <div className="flex flex-col gap-4 p-5">
+              <p className="text-sm text-slate-600">Upload a job sheet using the active template, or download the current format first.</p>
+              <button type="button" onClick={handleDownloadTemplate} className="inline-flex w-fit items-center gap-2 rounded border border-brand-dark-green px-4 py-2.5 text-sm font-semibold text-brand-dark-green hover:bg-brand-green"><Download size={16} /> Download template</button>
+              {uploading ? <button type="button" onClick={handleCancelUpload} className="inline-flex w-fit items-center gap-2 rounded border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50"><X size={16} /> Cancel upload</button> : <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded bg-brand-dark-green px-4 py-2.5 text-sm font-semibold text-white hover:bg-opacity-90"><UploadCloud size={16} /> Upload job CSV<input type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileUpload} /></label>}
+              {uploadStatus && <div aria-live="polite" className={`rounded border px-4 py-3 text-sm ${uploadStatus.startsWith('Error') ? 'border-red-200 bg-red-50 text-red-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>{uploadStatus}</div>}
+              {uploadReview && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                  <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-red-900">Format needs attention</p><p className="mt-1 text-xs text-red-800">{uploadReview.message}</p></div><button type="button" aria-label="Close upload review" onClick={() => setUploadReview(null)} className="rounded p-1 text-red-700 hover:bg-red-100"><X size={16} /></button></div>
+                  <table className="mt-3 w-full text-left text-xs"><thead><tr className="border-b border-red-200 text-red-800"><th className="px-2 py-2">Field</th><th className="px-2 py-2">Issue</th><th className="px-2 py-2 text-right">Action</th></tr></thead><tbody>{uploadReview.fields.map(({ header, status }) => <tr key={`${status}-${header}`} className="border-b border-red-100"><td className="px-2 py-2 font-mono">{header}</td><td className="px-2 py-2">{status}</td><td className="px-2 py-2 text-right"><button type="button" onClick={handleDownloadTemplate} className="font-semibold text-emerald-800 hover:underline">Add</button></td></tr>)}</tbody></table>
+                  <div className="mt-3 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setUploadReview(null)} className="rounded border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Skip upload</button><button type="button" onClick={handleSaveUploadReview} className="rounded border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100">Save report</button></div>
+                </div>
+              )}
+              <p className="text-xs text-slate-500">Failed uploads are not inserted. Use the upload ID in the notification or Upload history to review the attempt.</p>
             </div>
           </div>
         </div>

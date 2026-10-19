@@ -30,6 +30,7 @@ const createAccount = async (req, res, role) => {
       try {
         await Notification.create({
           companyAdminId: null,
+          audience: 'recruiter',
           type: 'candidate',
           title: 'New candidate registered',
           message: `${user.name} created a candidate account.`,

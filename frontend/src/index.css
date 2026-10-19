@@ -68,6 +68,25 @@ input {
   animation: auth-arrive 420ms ease-out both;
 }
 
+.auth-login-page .auth-card {
+  grid-template-columns: 1fr;
+  width: min(560px, 100%);
+  min-height: 520px;
+}
+
+.auth-login-page .auth-story {
+  display: none;
+}
+
+.auth-login-page .auth-panel {
+  padding: 38px clamp(28px, 5vw, 56px);
+}
+
+.auth-login-page .auth-panel-heading {
+  margin-right: calc(clamp(28px, 5vw, 56px) * -1);
+  margin-left: calc(clamp(28px, 5vw, 56px) * -1);
+}
+
 .auth-story {
   display: flex;
   flex-direction: column;

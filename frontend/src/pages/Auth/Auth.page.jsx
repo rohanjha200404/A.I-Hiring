@@ -100,7 +100,7 @@ const Auth = ({ role = 'candidate', initialView = 'login' }) => {
           <div className="auth-panel-heading">
             <h2>
               {view === 'login' && `${role === 'recruiter' ? 'Company' : 'Candidate'} login`}
-              {view === 'register' && `Create ${role} account`}
+              {view === 'register' && `Create ${role === 'recruiter' ? 'company' : 'candidate'} account`}
               {view === 'forgot' && 'Forgot password?'}
               {view === 'reset' && 'Reset password'}
             </h2>
@@ -159,7 +159,7 @@ const Auth = ({ role = 'candidate', initialView = 'login' }) => {
         <div className="auth-links">
           {view === 'login' && (
             <>
-              <button onClick={() => setView('register')} className="auth-link">Create account</button>
+              <button onClick={() => setView('register')} className="auth-link">{role === 'recruiter' ? 'Create company account' : 'Create account'}</button>
               <span className="auth-link-divider" aria-hidden="true">|</span>
               <button onClick={() => setView('forgot')} className="auth-link">Forgot password?</button>
             </>

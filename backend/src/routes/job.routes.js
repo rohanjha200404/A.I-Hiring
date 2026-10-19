@@ -3,7 +3,8 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { uploadJobsCSV, uploadJobTemplate, downloadTemplate, listJobs, listMatchingJobs, updateJob, deleteJob } from '../controllers/job.controller.js';
+import { uploadJobsCSV, uploadJobTemplate, downloadTemplate, getTemplateSchema, listJobs, listMatchingJobs, updateJob, deleteJob } from '../controllers/job.controller.js';
+import { listJobUploadHistory } from '../controllers/job-upload-history.controller.js';
 import { decryptRequest } from '../middlewares/encryption.middleware.js';
 import { requireCandidate, requireCompanyAccess, requireRecruiter } from '../middlewares/auth.middleware.js';
 
@@ -59,8 +60,10 @@ const receiveJobsCsv = (req, res, next) => {
 
 router.get('/matches', requireCandidate, listMatchingJobs);
 router.post('/upload', requireCompanyAccess('jobs'), receiveJobsCsv, uploadJobsCSV);
+router.get('/template/schema', requireCompanyAccess('jobs'), getTemplateSchema);
 router.get('/template', requireCompanyAccess('jobs'), downloadTemplate);
 router.post('/template', requireRecruiter, templateUpload.single('file'), uploadJobTemplate);
+router.get('/history', requireCompanyAccess(['jobs', 'settings']), listJobUploadHistory);
 router.get('/', requireCompanyAccess('jobs'), listJobs);
 router.put('/:id', requireCompanyAccess('jobs'), decryptRequest, updateJob);
 router.delete('/:id', requireCompanyAccess('jobs'), deleteJob);

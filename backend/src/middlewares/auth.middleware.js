@@ -59,3 +59,38 @@ export const requireCompanyAccess = (permission) => async (req, res, next) => {
     res.status(500).json({ message: 'Could not verify employee access', error: error.message });
   }
 };
+
+export const requireNotificationAccess = async (req, res, next) => {
+  const authorization = req.headers.authorization || '';
+  const [scheme, token] = authorization.split(' ');
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+
+  let payload;
+  try {
+    payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+  } catch {
+    return res.status(401).json({ message: 'Invalid or expired session' });
+  }
+
+  if (payload.role === 'Candidate' || ['HR', 'Admin'].includes(payload.role)) {
+    req.auth = payload;
+    return next();
+  }
+  if (payload.role !== 'Employee') {
+    return res.status(403).json({ message: 'Notification access required' });
+  }
+
+  try {
+    const employee = await Employee.findByPk(payload.id);
+    if (!employee) return res.status(401).json({ message: 'Employee account no longer exists' });
+    if (!employee.permissions.some((permission) => ['jobs', 'candidates'].includes(permission))) {
+      return res.status(403).json({ message: 'Your account does not have notification access' });
+    }
+    req.auth = { ...payload, companyAdminId: employee.companyAdminId, permissions: employee.permissions };
+    next();
+  } catch (error) {
+    res.status(500).json({ message: 'Could not verify notification access', error: error.message });
+  }
+};

@@ -11,6 +11,15 @@ export const Notification = sequelize.define('Notification', {
     type: DataTypes.UUID,
     allowNull: true,
   },
+  recipientId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+  },
+  audience: {
+    type: DataTypes.ENUM('recruiter', 'candidate'),
+    allowNull: false,
+    defaultValue: 'recruiter',
+  },
   type: {
     type: DataTypes.STRING,
     allowNull: false,
