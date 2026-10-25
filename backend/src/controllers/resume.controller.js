@@ -127,3 +127,29 @@ export const viewCandidateResume = async (req, res) => {
     res.status(500).json({ message: 'Could not open candidate resume', error: error.message });
   }
 };
+
+export const getMyResume = async (req, res) => {
+  try {
+    const resume = await CandidateResume.findOne({ where: { candidateId: req.auth.id } });
+    if (!resume) {
+      return res.status(404).json({ message: 'No resume uploaded yet' });
+    }
+
+    res.json({
+      id: resume.id,
+      originalName: resume.originalName,
+      mappedCourse: resume.mappedCourse,
+      yearsExperience: resume.yearsExperience,
+      matchScore: resume.matchScore,
+      status: resume.status,
+      uploadedAt: resume.updatedAt,
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Could not load your resume', error: error.message });
+  }
+};
+
+export const viewMyResume = (req, res) => {
+  req.params.candidateId = req.auth.id;
+  return viewCandidateResume(req, res);
+};

@@ -1,6 +1,7 @@
 import { User } from '../models/user.model.js';
 import { Employee } from '../models/employee.model.js';
 import { Notification } from '../models/notification.model.js';
+import { ActivityLog } from '../models/activity-log.model.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
@@ -62,13 +63,32 @@ export const login = async (req, res) => {
 
     const role = user ? user.role : 'Employee';
     const token = jwt.sign({ id: account.id, role }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
+
+    if (employee || ['HR', 'Admin'].includes(role)) {
+      try {
+        await ActivityLog.create({
+          companyAdminId: employee?.companyAdminId || user.id,
+          category: 'login',
+          action: 'LOGIN_SUCCESS',
+          targetName: account.name,
+          performedByName: account.name,
+          details: {
+            email: account.email,
+            role,
+            ...(employee?.position ? { position: employee.position } : {}),
+          },
+        });
+      } catch (logError) {
+        console.error('Could not create login activity log:', logError.message);
+      }
+    }
     
     res.json({
       message: 'Login successful',
       token,
       user: user
         ? { id: user.id, name: user.name, role, email: user.email }
-        : { id: employee.id, name: employee.name, role, email: employee.email, employeeId: employee.employeeId, companyName: employee.companyName, permissions: employee.permissions },
+        : { id: employee.id, name: employee.name, role, email: employee.email, employeeId: employee.employeeId, position: employee.position, companyName: employee.companyName, permissions: employee.permissions },
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

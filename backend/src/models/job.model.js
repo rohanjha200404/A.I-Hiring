@@ -23,7 +23,12 @@ export const Job = sequelize.define('Job', {
   },
   skills_required: {
     type: DataTypes.TEXT, // Comma separated list of skills
-  }
+  },
+  customFields: {
+    type: DataTypes.JSON,
+    allowNull: false,
+    defaultValue: {},
+  },
 }, {
   timestamps: true,
 });

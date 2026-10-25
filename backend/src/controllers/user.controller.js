@@ -29,6 +29,7 @@ export const listCandidates = async (_req, res) => {
       stage: workflowByCandidateId.get(candidate.id)?.stage || 'Pending',
       outreachStatus: workflowByCandidateId.get(candidate.id)?.outreachStatus || 'Pending',
       lastContactedAt: workflowByCandidateId.get(candidate.id)?.lastContactedAt || null,
+      notes: workflowByCandidateId.get(candidate.id)?.notes || '',
     })));
   } catch (error) {
     res.status(500).json({ message: 'Could not load candidate details', error: error.message });
@@ -89,6 +90,9 @@ export const updateCandidateWorkflow = async (req, res) => {
     if (req.body.outreachStatus && !outreachStatuses.includes(req.body.outreachStatus)) {
       return res.status(400).json({ message: 'Invalid outreach status' });
     }
+    if (req.body.notes !== undefined && typeof req.body.notes !== 'string') {
+      return res.status(400).json({ message: 'Candidate notes must be text' });
+    }
 
     const [workflow] = await CandidateWorkflow.findOrCreate({
       where: { candidateId: candidate.id },
@@ -100,6 +104,7 @@ export const updateCandidateWorkflow = async (req, res) => {
       update.outreachStatus = req.body.outreachStatus;
       update.lastContactedAt = req.body.outreachStatus === 'Contacted' ? new Date() : null;
     }
+    if (req.body.notes !== undefined) update.notes = req.body.notes.trim();
     await workflow.update(update);
 
     if (req.body.stage && req.body.stage !== 'Pending') {
@@ -111,8 +116,42 @@ export const updateCandidateWorkflow = async (req, res) => {
       });
     }
 
-    res.json({ candidateId: candidate.id, stage: workflow.stage, outreachStatus: workflow.outreachStatus, lastContactedAt: workflow.lastContactedAt });
+    res.json({ candidateId: candidate.id, stage: workflow.stage, outreachStatus: workflow.outreachStatus, lastContactedAt: workflow.lastContactedAt, notes: workflow.notes });
   } catch (error) {
     res.status(500).json({ message: 'Could not update candidate status', error: error.message });
+  }
+};
+
+export const getMyCandidateProfile = async (req, res) => {
+  try {
+    const candidate = await User.findOne({
+      where: { id: req.auth.id, role: 'Candidate' },
+      attributes: ['id', 'name', 'email', 'role', 'createdAt'],
+    });
+    if (!candidate) return res.status(404).json({ message: 'Candidate account not found' });
+
+    const [resume, workflow] = await Promise.all([
+      CandidateResume.findOne({ where: { candidateId: candidate.id } }),
+      CandidateWorkflow.findOrCreate({ where: { candidateId: candidate.id }, defaults: { candidateId: candidate.id } }),
+    ]);
+    res.json({
+      ...candidate.toJSON(),
+      resume: resume ? {
+        id: resume.id,
+        originalName: resume.originalName,
+        mappedCourse: resume.mappedCourse,
+        yearsExperience: resume.yearsExperience,
+        matchScore: resume.matchScore,
+        status: resume.status,
+        uploadedAt: resume.updatedAt,
+      } : null,
+      workflow: {
+        stage: workflow[0].stage,
+        outreachStatus: workflow[0].outreachStatus,
+        notes: workflow[0].notes,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Could not load candidate profile', error: error.message });
   }
 };

@@ -51,7 +51,7 @@ export const requireCompanyAccess = (permission) => async (req, res, next) => {
     if (!employee) return res.status(401).json({ message: 'Employee account no longer exists' });
     const requiredPermissions = Array.isArray(permission) ? permission : [permission];
     if (!requiredPermissions.some((requiredPermission) => employee.permissions.includes(requiredPermission))) {
-      return res.status(403).json({ message: 'Your account does not have access to this tab' });
+      return res.status(403).json({ message: 'Your account does not have access to this dashboard area' });
     }
     req.auth = { ...payload, companyAdminId: employee.companyAdminId, permissions: employee.permissions };
     next();

@@ -16,7 +16,6 @@ export const getOrCreateCompanySettings = async (admin) => {
       companyAdminId: admin.id,
       companyName: admin.name,
       employeeEmailDomain: defaultDomainFromCompanyName(admin.name),
-      defaultEmployeePermissions: ['jobs'],
     },
   });
   return settings;

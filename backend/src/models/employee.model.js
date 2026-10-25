@@ -15,6 +15,10 @@ export const Employee = sequelize.define('Employee', {
     type: DataTypes.STRING,
     allowNull: false,
   },
+  position: {
+    type: DataTypes.STRING,
+    allowNull: false,
+  },
   companyName: {
     type: DataTypes.STRING,
     allowNull: false,

@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -8,13 +8,15 @@ import RoleSelect from './pages/Auth/RoleSelect.page.jsx';
 import HRDashboard from './pages/HRDashboard/HRDashboard.page.jsx';
 import CandidateDashboard from './pages/CandidateDashboard/CandidateDashboard.page.jsx';
 
-function App() {
+function AppContent() {
+  const { pathname } = useLocation();
+  const isLandingPage = pathname === '/';
+
   return (
-    <Router>
-      <div className="flex min-h-screen flex-col bg-slate-50">
-        <Header />
-        <Toaster position="top-right" richColors closeButton />
-        <main className="container mx-auto mt-6 w-full flex-1 p-4">
+    <div className={`flex min-h-screen flex-col bg-slate-50 ${isLandingPage ? 'landing-shell' : ''}`}>
+      <Header />
+      <Toaster position="top-right" richColors closeButton />
+      <main className={isLandingPage ? 'landing-main' : 'container mx-auto mt-6 w-full flex-1 p-4'}>
           <Routes>
             <Route path="/" element={<RoleSelect />} />
             <Route path="/welcome" element={
@@ -35,9 +37,16 @@ function App() {
             <Route path="/hr-dashboard" element={<HRDashboard />} />
             <Route path="/candidate-dashboard" element={<CandidateDashboard />} />
           </Routes>
-        </main>
-        <Footer />
-      </div>
+      </main>
+      {!isLandingPage && <Footer />}
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <AppContent />
     </Router>
   );
 }

@@ -13,7 +13,9 @@ const startServer = async () => {
 
     await sequelize.authenticate();
     console.log('Database connected successfully.');
-    // Sync models
+    // Create missing tables without repeatedly altering existing MySQL indexes.
+    // `alter: true` can add duplicate unique keys on every restart until MySQL
+    // reaches its 64-key limit.
     await sequelize.sync();
     
     app.listen(PORT, () => {
