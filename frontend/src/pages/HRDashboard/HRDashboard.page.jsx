@@ -884,10 +884,40 @@ const HRDashboard = () => {
       {candidateModalOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Candidate details">
           <div className="flex max-h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-              <div>
-                <h2 className="font-semibold text-slate-800">Candidate details</h2>
-                <p className="mt-1 text-sm text-slate-500">{candidates.length} candidates</p>
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div className="flex flex-wrap items-center gap-4">
+                <div>
+                  <h2 className="font-semibold text-slate-800">Candidate details</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {filteredCandidates.length} {filteredCandidates.length === 1 ? 'candidate' : 'candidates'} {candidateSearchQuery ? `(filtered from ${candidates.length})` : 'in workspace'}
+                  </p>
+                </div>
+                <div className="relative min-w-[280px]">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search candidates by name, email, stage, notes..."
+                    value={candidateSearchQuery}
+                    onChange={(e) => {
+                      setCandidateSearchQuery(e.target.value);
+                      setCandidatePage(1);
+                    }}
+                    className="w-full rounded-md border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-7 text-xs outline-none focus:border-brand-dark-green focus:bg-white"
+                  />
+                  {candidateSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCandidateSearchQuery('');
+                        setCandidatePage(1);
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      title="Clear search"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
               </div>
               <button type="button" title="Close candidates" aria-label="Close candidates" onClick={() => setCandidateModalOpen(false)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
             </div>
@@ -906,34 +936,60 @@ const HRDashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {candidates.map((candidate) => (
-                    <tr key={candidate.id} className="border-b border-slate-100 text-slate-700 last:border-0">
-                      <td className="px-3 py-3 font-medium text-slate-900">{candidate.name}</td>
-                      <td className="px-3 py-3">{candidate.email}</td>
-                      <td className="px-3 py-3">{isCompanyAdmin ? (
-                        <select aria-label={`${candidate.name} hiring stage`} value={candidate.stage || 'Pending'} onChange={(event) => handleCandidateWorkflowChange(candidate, { stage: event.target.value })} className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
-                          {['Pending', 'Interview', 'Hired', 'Rejected'].map((stage) => <option key={stage}>{stage}</option>)}
-                        </select>
-                      ) : candidate.stage || 'Pending'}</td>
-                      <td className="px-3 py-3">{isCompanyAdmin ? (
-                        <button type="button" onClick={() => handleCandidateWorkflowChange(candidate, { outreachStatus: candidate.outreachStatus === 'Contacted' ? 'Pending' : 'Contacted' })} className={`rounded px-2 py-1 text-xs font-semibold ${candidate.outreachStatus === 'Contacted' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
-                          {candidate.outreachStatus === 'Contacted' ? 'Contacted' : 'Mark contacted'}
+                  {paginatedCandidates.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-sm text-slate-500">
+                        No candidates found matching "{candidateSearchQuery}".
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCandidateSearchQuery('');
+                            setCandidatePage(1);
+                          }}
+                          className="ml-2 font-medium text-brand-dark-green underline hover:text-emerald-800"
+                        >
+                          Clear search
                         </button>
-                      ) : candidate.outreachStatus || 'Pending'}</td>
-                      <td className="px-3 py-3">{new Date(candidate.createdAt).toLocaleDateString()}</td>
-                      <td className="px-3 py-3">{candidate.resumeAvailable ? (
-                        <button type="button" title="View resume" aria-label={`View ${candidate.name}'s resume`} onClick={() => handleViewResume(candidate)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Eye size={17} /></button>
-                      ) : <span className="text-slate-400">Not uploaded</span>}</td>
-                      <td className="px-3 py-3"><button type="button" title="View or write note" aria-label={`${isCompanyAdmin ? 'Write' : 'View'} note for ${candidate.name}`} onClick={() => setNoteCandidate(candidate)} className={`rounded p-2 hover:bg-emerald-50 ${candidate.notes?.trim() ? 'text-emerald-600' : 'text-slate-400'}`}><FilePenLine size={17} /></button></td>
-                      <td className="px-3 py-3"><div className="flex justify-end gap-1">
-                        <button type="button" title="Create email" aria-label={`Email ${candidate.name}`} onClick={() => openMailComposer(candidate)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Mail size={16} /></button>
-                        {isCompanyAdmin && <button type="button" title="Delete candidate" aria-label={`Delete ${candidate.name}`} disabled={busyCandidateId === candidate.id} onClick={() => handleDeleteCandidate(candidate)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button>}
-                      </div></td>
+                      </td>
                     </tr>
-                  ))}
+                  ) : (
+                    paginatedCandidates.map((candidate) => (
+                      <tr key={candidate.id} className="border-b border-slate-100 text-slate-700 last:border-0 hover:bg-slate-50/50">
+                        <td className="px-3 py-3 font-medium text-slate-900">{candidate.name}</td>
+                        <td className="px-3 py-3">{candidate.email}</td>
+                        <td className="px-3 py-3">{isCompanyAdmin ? (
+                          <select aria-label={`${candidate.name} hiring stage`} value={candidate.stage || 'Pending'} onChange={(event) => handleCandidateWorkflowChange(candidate, { stage: event.target.value })} className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
+                            {['Pending', 'Interview', 'Hired', 'Rejected'].map((stage) => <option key={stage}>{stage}</option>)}
+                          </select>
+                        ) : candidate.stage || 'Pending'}</td>
+                        <td className="px-3 py-3">{isCompanyAdmin ? (
+                          <button type="button" onClick={() => handleCandidateWorkflowChange(candidate, { outreachStatus: candidate.outreachStatus === 'Contacted' ? 'Pending' : 'Contacted' })} className={`rounded px-2 py-1 text-xs font-semibold ${candidate.outreachStatus === 'Contacted' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
+                            {candidate.outreachStatus === 'Contacted' ? 'Contacted' : 'Mark contacted'}
+                          </button>
+                        ) : candidate.outreachStatus || 'Pending'}</td>
+                        <td className="px-3 py-3">{new Date(candidate.createdAt).toLocaleDateString()}</td>
+                        <td className="px-3 py-3">{candidate.resumeAvailable ? (
+                          <button type="button" title="View resume" aria-label={`View ${candidate.name}'s resume`} onClick={() => handleViewResume(candidate)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Eye size={17} /></button>
+                        ) : <span className="text-slate-400">Not uploaded</span>}</td>
+                        <td className="px-3 py-3"><button type="button" title="View or write note" aria-label={`${isCompanyAdmin ? 'Write' : 'View'} note for ${candidate.name}`} onClick={() => setNoteCandidate(candidate)} className={`rounded p-2 hover:bg-emerald-50 ${candidate.notes?.trim() ? 'text-emerald-600' : 'text-slate-400'}`}><FilePenLine size={17} /></button></td>
+                        <td className="px-3 py-3"><div className="flex justify-end gap-1">
+                          <button type="button" title="Create email" aria-label={`Email ${candidate.name}`} onClick={() => openMailComposer(candidate)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Mail size={16} /></button>
+                          {isCompanyAdmin && <button type="button" title="Delete candidate" aria-label={`Delete ${candidate.name}`} disabled={busyCandidateId === candidate.id} onClick={() => handleDeleteCandidate(candidate)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button>}
+                        </div></td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
+            <PaginationControls
+              currentPage={candidatePage}
+              totalPages={totalCandidatePages}
+              totalItems={filteredCandidates.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCandidatePage}
+              label="candidates"
+            />
           </div>
         </div>
       )}
