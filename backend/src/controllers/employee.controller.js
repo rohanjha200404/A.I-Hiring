@@ -3,6 +3,7 @@ import { Op } from 'sequelize';
 import { Employee } from '../models/employee.model.js';
 import { User } from '../models/user.model.js';
 import { getOrCreateCompanySettings } from '../utils/company-settings.util.js';
+import { ActivityLog } from '../models/activity-log.model.js';
 
 const allowedPermissions = new Set(['jobs', 'candidates', 'accounts', 'settings']);
 
@@ -16,6 +17,25 @@ const employeeResponse = (employee) => ({
   permissions: employee.permissions,
   createdAt: employee.createdAt,
 });
+
+const recordEmployeeLog = async (req, action, employee) => {
+  const performer = req.auth.role === 'Employee'
+    ? await Employee.findByPk(req.auth.id, { attributes: ['name'] })
+    : await User.findByPk(req.auth.id, { attributes: ['name'] });
+
+  await ActivityLog.create({
+    companyAdminId: req.auth.companyAdminId || req.auth.id,
+    category: 'employee',
+    action,
+    targetName: employee.name,
+    performedByName: performer?.name || (req.auth.role === 'Employee' ? 'Employee' : 'Recruiter'),
+    details: {
+      email: employee.email,
+      position: employee.position,
+      employeeId: employee.employeeId,
+    },
+  });
+};
 
 export const listEmployees = async (req, res) => {
   try {
@@ -76,6 +96,7 @@ export const createEmployee = async (req, res) => {
       permissions: requestedAccess,
     });
 
+    await recordEmployeeLog(req, 'EMPLOYEE_CREATED', employee);
     res.status(201).json(employeeResponse(employee));
   } catch (error) {
     res.status(500).json({ message: 'Could not create employee account', error: error.message });
@@ -125,6 +146,7 @@ export const updateEmployee = async (req, res) => {
     const updates = { employeeId, position, name, email, permissions: requestedAccess };
     if (password) updates.password = await bcrypt.hash(password, 10);
     await employee.update(updates);
+    await recordEmployeeLog(req, 'EMPLOYEE_UPDATED', employee);
     res.json(employeeResponse(employee));
   } catch (error) {
     res.status(500).json({ message: 'Could not update employee account', error: error.message });
@@ -137,6 +159,7 @@ export const deleteEmployee = async (req, res) => {
     if (!employee) return res.status(404).json({ message: 'Employee account not found' });
 
     await employee.destroy();
+    await recordEmployeeLog(req, 'EMPLOYEE_DELETED', employee);
     res.json({ message: 'Employee account deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Could not delete employee account', error: error.message });

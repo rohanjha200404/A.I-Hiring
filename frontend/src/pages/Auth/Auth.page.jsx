@@ -2,7 +2,7 @@ import { useState } from 'react';
 import api from '../../api/axios.config.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowUpRight, Eye, EyeOff, ShieldCheck, Sparkles } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 
 const Auth = ({ role = 'candidate', initialView = 'login' }) => {
   const [view, setView] = useState(initialView); // 'login', 'register', 'forgot', 'reset'
@@ -75,28 +75,7 @@ const Auth = ({ role = 'candidate', initialView = 'login' }) => {
   return (
     <section className="auth-page auth-login-page">
       <div className="auth-card">
-        <aside className="auth-story">
-          <div className="auth-story-topline">
-            <span className="auth-story-mark"><Sparkles size={15} /></span>
-            <p className="auth-kicker">SMART JOB &amp; HIRING PLATFORM</p>
-          </div>
-          <h1>{role === 'recruiter' ? 'Build your next great team.' : 'Find the role that fits you.'}</h1>
-          <p className="auth-story-description">{role === 'recruiter' ? 'Manage open positions and find candidates who can move your team forward.' : 'Share your experience and discover opportunities matched to your profile.'}</p>
-          <div className="auth-story-insight">
-            <div className="auth-story-insight-icon"><ShieldCheck size={18} /></div>
-            <div>
-              <strong>{role === 'recruiter' ? 'Your hiring workspace' : 'Your career workspace'}</strong>
-              <span>Secure, focused, ready when you are.</span>
-            </div>
-            <ArrowUpRight size={18} />
-          </div>
-        </aside>
-
         <div className="auth-panel">
-          <div className="auth-panel-toolbar">
-            <span><span className="auth-status-dot" /> SECURE ACCESS</span>
-            <Link to="/" className="auth-switch-role">Switch role</Link>
-          </div>
           <div className="auth-panel-heading">
             <h2>
               {view === 'login' && `${role === 'recruiter' ? 'Company' : 'Candidate'} login`}

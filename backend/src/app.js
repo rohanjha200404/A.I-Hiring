@@ -8,6 +8,7 @@ import employeeRoutes from './routes/employee.routes.js';
 import companySettingsRoutes from './routes/company-settings.routes.js';
 import mailTemplateRoutes from './routes/mail-template.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import activityLogRoutes from './routes/activity-log.routes.js';
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/company-settings', companySettingsRoutes);
 app.use('/api/mail-templates', mailTemplateRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/logs', activityLogRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'API is running' });

@@ -5,6 +5,7 @@ import { Job } from '../models/job.model.js';
 import { CandidateResume } from '../models/candidate-resume.model.js';
 import { CompanyJobTemplate } from '../models/company-job-template.model.js';
 import { Notification } from '../models/notification.model.js';
+import { User } from '../models/user.model.js';
 
 export const uploadJobsCSV = async (req, res) => {
   if (!req.file) {
@@ -19,12 +20,18 @@ export const uploadJobsCSV = async (req, res) => {
         .on('data', (row) => {
           const title = row.title?.trim();
           if (title) {
+            const standardHeaders = new Set(['title', 'department', 'experience_required', 'course_required', 'skills_required']);
             jobs.push({
               title,
               department: row.department?.trim() || 'General',
               experience_required: parseInt(row.experience_required, 10) || 0,
               course_required: row.course_required?.trim() || '',
               skills_required: row.skills_required?.trim() || '',
+              customFields: Object.fromEntries(
+                Object.entries(row)
+                  .filter(([header, value]) => !standardHeaders.has(header) && String(value || '').trim())
+                  .map(([header, value]) => [header, String(value).trim()]),
+              ),
             });
           }
         })
@@ -120,6 +127,29 @@ export const listJobs = async (req, res) => {
   }
 };
 
+export const createJob = async (req, res) => {
+  try {
+    const title = req.body.title?.trim();
+    const experienceRequired = Number(req.body.experience_required);
+    if (!title) return res.status(400).json({ message: 'Job title is required' });
+    if (!Number.isInteger(experienceRequired) || experienceRequired < 0) {
+      return res.status(400).json({ message: 'Experience must be a non-negative whole number' });
+    }
+
+    const job = await Job.create({
+      title,
+      department: req.body.department?.trim() || 'General',
+      experience_required: experienceRequired,
+      course_required: req.body.course_required?.trim() || '',
+      skills_required: req.body.skills_required?.trim() || '',
+      customFields: req.body.customFields || {},
+    });
+    res.status(201).json(job);
+  } catch (error) {
+    res.status(500).json({ message: 'Could not create job', error: error.message });
+  }
+};
+
 const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 export const listMatchingJobs = async (req, res) => {
@@ -145,6 +175,37 @@ export const listMatchingJobs = async (req, res) => {
   }
 };
 
+export const listOpenJobs = async (_req, res) => {
+  try {
+    const jobs = await Job.findAll({
+      order: [['createdAt', 'DESC']],
+      limit: 100,
+    });
+    res.json(jobs);
+  } catch (error) {
+    res.status(500).json({ message: 'Could not load open jobs', error: error.message });
+  }
+};
+
+export const expressInterest = async (req, res) => {
+  try {
+    const job = await Job.findByPk(req.params.id);
+    if (!job) return res.status(404).json({ message: 'Job not found' });
+    const candidate = await User.findByPk(req.auth.id, { attributes: ['name', 'email'] });
+    if (!candidate) return res.status(404).json({ message: 'Candidate not found' });
+
+    await Notification.create({
+      companyAdminId: null,
+      type: 'candidate',
+      title: 'Candidate expressed interest',
+      message: `${candidate.name} (${candidate.email}) expressed interest in the ${job.title} position.`,
+    });
+    res.json({ message: `Your interest in ${job.title} was sent to the recruiter.` });
+  } catch (error) {
+    res.status(500).json({ message: 'Could not send your interest', error: error.message });
+  }
+};
+
 export const updateJob = async (req, res) => {
   try {
     const job = await Job.findByPk(req.params.id);
@@ -167,6 +228,7 @@ export const updateJob = async (req, res) => {
       experience_required: experienceRequired,
       course_required: req.body.course_required?.trim() || '',
       skills_required: req.body.skills_required?.trim() || '',
+      customFields: req.body.customFields || {},
     });
 
     res.json(job);

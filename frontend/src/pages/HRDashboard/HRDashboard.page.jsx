@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { UploadCloud, Download, Users, Briefcase, Pencil, Trash2, Save, X, Eye, Mail, Settings, FilePenLine } from 'lucide-react';
+import { UploadCloud, Download, Users, Briefcase, Pencil, Trash2, Save, X, Eye, Mail, Settings, FilePenLine, Plus, History, LogIn, UserCheck, Search, RefreshCw, FileText } from 'lucide-react';
 import api from '../../api/axios.config.js';
 import { toast } from 'sonner';
 
@@ -19,6 +19,17 @@ const topCommonLabels = (values, limit = 3) => {
     }
   }
   return [...counts.values()].sort((first, second) => second.count - first.count).slice(0, limit);
+};
+
+const getJobField = (job, header) => {
+  const standardValue = {
+    title: job.title,
+    department: job.department,
+    experience_required: job.experience_required,
+    course_required: job.course_required,
+    skills_required: job.skills_required,
+  }[header];
+  return job.customFields?.[header] ?? standardValue ?? '';
 };
 
 const readSessionUser = () => {
@@ -74,6 +85,11 @@ const HRDashboard = () => {
   const [jobTemplateFile, setJobTemplateFile] = useState(null);
   const [jobTemplateUploading, setJobTemplateUploading] = useState(false);
   const [uploadedJobTemplateName, setUploadedJobTemplateName] = useState('');
+  const [uploadedJobTemplateHeaders, setUploadedJobTemplateHeaders] = useState([]);
+  const [addJobOpen, setAddJobOpen] = useState(false);
+  const [uploadReview, setUploadReview] = useState(null);
+  const [uploadHistory, setUploadHistory] = useState([]);
+  const [uploadHistoryLoading, setUploadHistoryLoading] = useState(false);
   const [jobsModalOpen, setJobsModalOpen] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -95,15 +111,91 @@ const HRDashboard = () => {
   const [uploading, setUploading] = useState(false);
   const uploadControllerRef = useRef(null);
 
+  // Activity logs states
+  const [logs, setLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsCategory, setLogsCategory] = useState('email'); // 'email', 'login', 'employee'
+  const [logsSearch, setLogsSearch] = useState('');
+
+  // Manual job creation states
+  const [addJobTab, setAddJobTab] = useState('manual'); // 'manual' or 'csv'
+  const [manualJobForm, setManualJobForm] = useState({
+    title: '',
+    department: '',
+    experience_required: 0,
+    course_required: '',
+    skills_required: '',
+  });
+  const [creatingJob, setCreatingJob] = useState(false);
+  const [jobSearchQuery, setJobSearchQuery] = useState('');
+
   const loadJobs = async () => {
     setJobsLoading(true);
     try {
       const response = await api.get('/jobs');
-      setJobs(response.data);
+      setJobs(response.data || []);
     } catch (error) {
       toast.error(error.response?.data?.message || 'Could not load uploaded jobs.');
     } finally {
       setJobsLoading(false);
+    }
+  };
+
+  const loadLogs = async (category = logsCategory) => {
+    setLogsLoading(true);
+    try {
+      const response = await api.get(`/logs?category=${category}`);
+      setLogs(response.data || []);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not load activity logs.');
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  const handleCreateManualJob = async (e) => {
+    e.preventDefault();
+    if (!manualJobForm.title.trim()) {
+      toast.error('Please enter a job title.');
+      return;
+    }
+
+    setCreatingJob(true);
+    try {
+      const response = await api.post('/jobs', {
+        title: manualJobForm.title.trim(),
+        department: manualJobForm.department.trim() || 'General',
+        experience_required: Number(manualJobForm.experience_required || 0),
+        course_required: manualJobForm.course_required.trim(),
+        skills_required: manualJobForm.skills_required.trim(),
+      });
+
+      // Update available jobs and state immediately
+      setJobs((prev) => [response.data, ...prev]);
+      setManualJobForm({
+        title: '',
+        department: '',
+        experience_required: 0,
+        course_required: '',
+        skills_required: '',
+      });
+      setAddJobOpen(false);
+      toast.success(`Job "${response.data.title}" added successfully!`);
+      await loadJobs();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not create job position.');
+    } finally {
+      setCreatingJob(false);
+    }
+  };
+
+  const loadJobTemplateSchema = async () => {
+    try {
+      const response = await api.get('/jobs/template/schema');
+      setUploadedJobTemplateName(response.data.filename);
+      setUploadedJobTemplateHeaders(response.data.headers || []);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not load the active job template.');
     }
   };
 
@@ -146,6 +238,18 @@ const HRDashboard = () => {
     }
   };
 
+  const loadUploadHistory = async () => {
+    setUploadHistoryLoading(true);
+    try {
+      const response = await api.get('/jobs/history');
+      setUploadHistory(response.data);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not load upload history.');
+    } finally {
+      setUploadHistoryLoading(false);
+    }
+  };
+
   const loadCompanySettings = async () => {
     setSettingsLoading(true);
     try {
@@ -159,7 +263,11 @@ const HRDashboard = () => {
   };
 
   useEffect(() => {
-    if (canAccessJobs) loadJobs();
+    if (canAccessJobs && activeTab === 'jobs') loadJobs();
+  }, [canAccessJobs, activeTab]);
+
+  useEffect(() => {
+    if (canAccessJobs) loadJobTemplateSchema();
   }, [canAccessJobs]);
 
   useEffect(() => {
@@ -173,6 +281,16 @@ const HRDashboard = () => {
   useEffect(() => {
     if (activeTab === 'settings' && isCompanyAdmin) loadMailTemplates();
   }, [activeTab, isCompanyAdmin]);
+
+  useEffect(() => {
+    if (activeTab === 'settings' && canAccessSettings) loadUploadHistory();
+  }, [activeTab, canAccessSettings]);
+
+  useEffect(() => {
+    if (settingsDialog === 'logs') {
+      loadLogs(logsCategory);
+    }
+  }, [settingsDialog, logsCategory]);
 
   useEffect(() => {
     if (activeTab === 'candidates' && canAccessCandidates && !candidatesLoaded && !candidatesLoading) {
@@ -210,8 +328,9 @@ const HRDashboard = () => {
     try {
       const response = await api.post('/jobs/template', formData);
       setUploadedJobTemplateName(response.data.filename);
+      setUploadedJobTemplateHeaders(response.data.headers || []);
       setJobTemplateFile(null);
-      toast.success('Job download template updated.');
+      toast.success(`Template saved. Upload ID: ${response.data.uploadId}`);
     } catch (error) {
       toast.error(error.response?.data?.message || 'Could not upload the job CSV template.');
     } finally {
@@ -246,15 +365,30 @@ const HRDashboard = () => {
         },
       });
       setUploadStatus(`Success: ${res.data.message} (${res.data.count} jobs)`);
-      toast.success(`${res.data.count} jobs uploaded successfully.`);
+      toast.success(`${res.data.count} jobs uploaded. Upload ID: ${res.data.uploadId}`);
       await loadJobs();
+      setAddJobOpen(false);
     } catch (error) {
       if (controller.signal.aborted || error.code === 'ERR_CANCELED') {
         setUploadStatus('Upload canceled.');
         toast.info('Job upload canceled.');
         return;
       }
-      const message = error.response?.data?.message || 'Could not reach the server. Check that the backend is running.';
+      const uploadId = error.response?.data?.uploadId;
+      const uploadDetails = error.response?.data;
+      if (uploadDetails?.requiredHeaders && uploadDetails?.uploadedHeaders) {
+        const requiredHeaders = uploadDetails.requiredHeaders;
+        const uploadedHeaders = uploadDetails.uploadedHeaders;
+        setUploadReview({
+          uploadId,
+          message: uploadDetails.message,
+          fields: [
+            ...requiredHeaders.filter((header) => !uploadedHeaders.includes(header)).map((header) => ({ header, status: 'Missing from uploaded sheet' })),
+            ...uploadedHeaders.filter((header) => !requiredHeaders.includes(header)).map((header) => ({ header, status: 'Not in active template' })),
+          ],
+        });
+      }
+      const message = `${error.response?.data?.message || 'Could not reach the server. Check that the backend is running.'}${uploadId ? ` Upload ID: ${uploadId}` : ''}`;
       setUploadStatus(`Error: ${message}`);
       toast.error(message);
     } finally {
@@ -268,28 +402,39 @@ const HRDashboard = () => {
     uploadControllerRef.current?.abort();
   };
 
+  const handleSaveUploadReview = () => {
+    if (!uploadReview) return;
+    const blob = new Blob([JSON.stringify(uploadReview, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `job-upload-review-${uploadReview.uploadId || 'report'}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const startEditing = (job) => {
     setEditingJobId(job.id);
-    setEditValues({
-      title: job.title,
-      department: job.department || '',
-      experience_required: job.experience_required ?? 0,
-      course_required: job.course_required || '',
-      skills_required: job.skills_required || '',
-    });
+    setEditValues(Object.fromEntries(jobTableHeaders.map((header) => [header, getJobField(job, header)])));
   };
 
   const handleSaveJob = async (jobId) => {
-    if (!editValues.title?.trim()) {
-      toast.error('Job title is required.');
+    const currentJob = jobs.find((job) => job.id === jobId);
+    const title = editValues.title?.trim() || editValues.position?.trim() || editValues.job_title?.trim() || currentJob?.title;
+    if (!title) {
+      toast.error('Add a title or position before saving.');
       return;
     }
 
     setBusyJobId(jobId);
     try {
       const response = await api.put(`/jobs/${jobId}`, {
-        ...editValues,
-        experience_required: Number(editValues.experience_required),
+        title,
+        department: editValues.department,
+        experience_required: Number(editValues.experience_required || 0),
+        course_required: editValues.course_required,
+        skills_required: editValues.skills_required,
+        customFields: editValues,
       });
       setJobs((currentJobs) => currentJobs.map((job) => job.id === jobId ? response.data : job));
       setEditingJobId(null);
@@ -505,6 +650,9 @@ const HRDashboard = () => {
     interviews: candidates.filter((candidate) => candidate.stage === 'Interview').length,
     mailPending: candidates.filter((candidate) => candidate.outreachStatus !== 'Contacted').length,
   };
+  const jobTableHeaders = uploadedJobTemplateHeaders.length
+    ? uploadedJobTemplateHeaders
+    : ['title', 'department', 'experience_required', 'course_required', 'skills_required'];
 
   return (
     <div className="bg-white rounded-lg shadow min-h-[70vh]">
@@ -546,31 +694,24 @@ const HRDashboard = () => {
       <div className="p-8">
         {activeTab === 'jobs' && canAccessJobs && (
           <div className="flex flex-col gap-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
               <h2 className="text-xl font-bold text-gray-800">Job Positions Management</h2>
               <div className="flex flex-wrap items-center gap-2">
-                <button 
-                  onClick={handleDownloadTemplate}
-                  className="flex items-center gap-2 rounded border border-brand-dark-green bg-white px-3 py-2 text-sm text-brand-dark-green shadow-sm transition hover:bg-brand-green"
-                >
-                  <Download size={16} /> Template
-                </button>
-
-                {uploading ? (
-                  <button type="button" onClick={handleCancelUpload} className="flex items-center gap-2 rounded border border-red-200 bg-white px-3 py-2 text-sm text-red-700 shadow-sm transition hover:bg-red-50">
-                    <X size={16} /> Cancel upload
-                  </button>
-                ) : (
-                  <label className="flex cursor-pointer items-center gap-2 rounded bg-brand-dark-green px-3 py-2 text-sm text-white shadow-sm transition hover:bg-opacity-90">
-                    <UploadCloud size={16} /> Upload CSV
-                    <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileUpload} />
-                  </label>
-                )}
+                <button type="button" onClick={() => { setAddJobTab('manual'); setAddJobOpen(true); }} className="flex items-center gap-2 rounded bg-brand-dark-green px-3 py-2 text-sm text-white shadow-sm transition hover:bg-opacity-90"><Plus size={16} /> Add job</button>
+                <button type="button" onClick={loadJobs} title="Refresh jobs list" className="flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition shadow-xs"><RefreshCw size={15} /> Refresh</button>
               </div>
             </div>
             {uploadStatus && (
               <div aria-live="polite" className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-gray-700">
                 {uploadStatus}
+              </div>
+            )}
+
+            {uploadedJobTemplateName && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                <p className="font-semibold">Active job upload format: {uploadedJobTemplateName}</p>
+                <p className="mt-1">Every job CSV must use these columns in this exact order, with a value in each field:</p>
+                <p className="mt-2 font-mono text-xs">{uploadedJobTemplateHeaders.join(' | ')}</p>
               </div>
             )}
 
@@ -617,60 +758,36 @@ const HRDashboard = () => {
             {jobsModalOpen && (
               <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Uploaded jobs">
                 <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
-                  <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                    <div>
-                      <h3 className="font-semibold text-slate-800">Job positions</h3>
-                      <p className="mt-1 text-sm text-slate-500">{jobs.length} positions</p>
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div>
+                        <h3 className="font-semibold text-slate-800">Job positions</h3>
+                        <p className="mt-0.5 text-xs text-slate-500">{jobs.length} total positions in workspace</p>
+                      </div>
+                      <div className="relative min-w-[240px]">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search positions by title, skills..."
+                          value={jobSearchQuery}
+                          onChange={(e) => setJobSearchQuery(e.target.value)}
+                          className="w-full rounded-md border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-xs outline-none focus:border-brand-dark-green focus:bg-white"
+                        />
+                      </div>
                     </div>
                     <button type="button" title="Close job list" aria-label="Close job list" onClick={() => setJobsModalOpen(false)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
                   </div>
                   <div className="overflow-auto p-4">
                     <table className="w-full min-w-[720px] border-collapse text-left text-sm">
-                    <thead>
-                      <tr className="border-b text-xs uppercase text-gray-500">
-                        <th className="px-3 py-3 font-semibold">Position</th>
-                        <th className="px-3 py-3 font-semibold">Department</th>
-                        <th className="px-3 py-3 font-semibold">Experience</th>
-                        <th className="px-3 py-3 font-semibold">Course</th>
-                        <th className="px-3 py-3 font-semibold">Skills</th>
-                        <th className="px-3 py-3 text-right font-semibold">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {jobs.map((job) => (
-                        <tr key={job.id} className="border-b border-slate-100 text-slate-700 last:border-0">
-                          {editingJobId === job.id ? (
-                            <>
-                              <td className="px-2 py-2"><input aria-label="Job title" className="w-36 rounded border border-slate-300 px-2 py-1.5" value={editValues.title} onChange={(event) => setEditValues({ ...editValues, title: event.target.value })} /></td>
-                              <td className="px-2 py-2"><input aria-label="Department" className="w-28 rounded border border-slate-300 px-2 py-1.5" value={editValues.department} onChange={(event) => setEditValues({ ...editValues, department: event.target.value })} /></td>
-                              <td className="px-2 py-2"><input aria-label="Required experience in years" type="number" min="0" step="1" className="w-20 rounded border border-slate-300 px-2 py-1.5" value={editValues.experience_required} onChange={(event) => setEditValues({ ...editValues, experience_required: event.target.value })} /></td>
-                              <td className="px-2 py-2"><input aria-label="Required course" className="w-28 rounded border border-slate-300 px-2 py-1.5" value={editValues.course_required} onChange={(event) => setEditValues({ ...editValues, course_required: event.target.value })} /></td>
-                              <td className="px-2 py-2"><input aria-label="Required skills" className="w-32 rounded border border-slate-300 px-2 py-1.5" value={editValues.skills_required} onChange={(event) => setEditValues({ ...editValues, skills_required: event.target.value })} /></td>
-                              <td className="px-2 py-2">
-                                <div className="flex justify-end gap-1">
-                                  <button type="button" title="Save changes" aria-label="Save changes" disabled={busyJobId === job.id} onClick={() => handleSaveJob(job.id)} className="rounded p-2 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"><Save size={16} /></button>
-                                  <button type="button" title="Cancel editing" aria-label="Cancel editing" disabled={busyJobId === job.id} onClick={() => setEditingJobId(null)} className="rounded p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X size={16} /></button>
-                                </div>
-                              </td>
-                            </>
-                          ) : (
-                            <>
-                              <td className="px-3 py-3 font-medium text-slate-900">{job.title}</td>
-                              <td className="px-3 py-3">{job.department || 'General'}</td>
-                              <td className="px-3 py-3">{job.experience_required} years</td>
-                              <td className="px-3 py-3">{job.course_required || 'Any'}</td>
-                              <td className="px-3 py-3">{job.skills_required || 'Not specified'}</td>
-                              <td className="px-3 py-3">
-                                <div className="flex justify-end gap-1">
-                                  <button type="button" title="Edit job" aria-label={`Edit ${job.title}`} onClick={() => startEditing(job)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Pencil size={16} /></button>
-                                  <button type="button" title="Delete job" aria-label={`Delete ${job.title}`} disabled={busyJobId === job.id} onClick={() => handleDeleteJob(job)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button>
-                                </div>
-                              </td>
-                            </>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
+                    <thead><tr className="border-b text-xs uppercase text-gray-500">{jobTableHeaders.map((header) => <th key={header} className="px-3 py-3 font-semibold">{header.replaceAll('_', ' ')}</th>)}<th className="px-3 py-3 text-right font-semibold">Actions</th></tr></thead>
+                    <tbody>{jobs.filter((job) => {
+                      if (!jobSearchQuery.trim()) return true;
+                      const q = jobSearchQuery.toLowerCase();
+                      return job.title?.toLowerCase().includes(q) ||
+                             job.department?.toLowerCase().includes(q) ||
+                             job.course_required?.toLowerCase().includes(q) ||
+                             job.skills_required?.toLowerCase().includes(q);
+                    }).map((job) => <tr key={job.id} className="border-b border-slate-100 text-slate-700 last:border-0">{editingJobId === job.id ? jobTableHeaders.map((header) => <td key={header} className="px-2 py-2"><input aria-label={`Edit ${header}`} className="w-32 rounded border border-slate-300 px-2 py-1.5" value={editValues[header] || ''} onChange={(event) => setEditValues({ ...editValues, [header]: event.target.value })} /></td>) : jobTableHeaders.map((header) => <td key={header} className={`px-3 py-3 ${header === 'title' || header === 'position' ? 'font-medium text-slate-900' : ''}`}>{getJobField(job, header) || '—'}</td>)}<td className="px-3 py-3"><div className="flex justify-end gap-1">{editingJobId === job.id ? <><button type="button" title="Save changes" aria-label="Save changes" disabled={busyJobId === job.id} onClick={() => handleSaveJob(job.id)} className="rounded p-2 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"><Save size={16} /></button><button type="button" title="Cancel editing" aria-label="Cancel editing" disabled={busyJobId === job.id} onClick={() => setEditingJobId(null)} className="rounded p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X size={16} /></button></> : <><button type="button" title="Edit job" aria-label={`Edit ${job.title}`} onClick={() => startEditing(job)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Pencil size={16} /></button><button type="button" title="Delete job" aria-label={`Delete ${job.title}`} disabled={busyJobId === job.id} onClick={() => handleDeleteJob(job)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button></>}</div></td></tr>)}</tbody>
                     </table>
                   </div>
                 </div>
@@ -748,11 +865,13 @@ const HRDashboard = () => {
         )}
 
         {activeTab === 'settings' && canAccessSettings && (
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[
               ['company', 'Company Info', 'Company name and employee email domain.'],
               ['email', 'Email templates', 'Create and manage candidate mail templates.'],
-              ['job-template', 'Job download template', 'Upload the CSV file used by Template.'],
+              ['job-template', 'Job upload template', 'Define any required fields for future job uploads.'],
+              ['upload-history', 'Upload history', 'Review job and template upload activity.'],
+              ['logs', 'Logs', 'Review email logs, login history, and employee account edit/create logs.'],
             ].map(([key, title, description]) => (
               <button key={key} type="button" onClick={() => setSettingsDialog(key)} className="flex min-h-32 flex-col items-start justify-between rounded-lg border border-slate-200 bg-white p-5 text-left transition hover:border-emerald-400 hover:bg-emerald-50/40">
                 <Settings size={19} className="text-brand-dark-green" />
@@ -764,10 +883,10 @@ const HRDashboard = () => {
       </div>
 
       {settingsDialog && canAccessSettings && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={settingsDialog === 'company' ? 'Company Info' : settingsDialog === 'email' ? 'Email templates' : 'Job download template'}>
-          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label={settingsDialog === 'company' ? 'Company Info' : settingsDialog === 'email' ? 'Email templates' : settingsDialog === 'upload-history' ? 'Upload history' : settingsDialog === 'logs' ? 'System & Activity Logs' : 'Job upload template'}>
+          <div className={`flex max-h-[90vh] w-full ${settingsDialog === 'logs' ? 'max-w-5xl' : 'max-w-2xl'} flex-col overflow-hidden rounded-lg bg-white shadow-2xl`}>
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-              <h2 className="font-semibold text-slate-800">{settingsDialog === 'company' ? 'Company Info' : settingsDialog === 'email' ? 'Email templates' : 'Job download template'}</h2>
+              <h2 className="font-semibold text-slate-800">{settingsDialog === 'company' ? 'Company Info' : settingsDialog === 'email' ? 'Email templates' : settingsDialog === 'upload-history' ? 'Upload history' : settingsDialog === 'logs' ? 'System & Activity Logs' : 'Job upload template'}</h2>
               <button type="button" title="Close settings" aria-label="Close settings" onClick={() => setSettingsDialog(null)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
             </div>
             <div className="overflow-y-auto p-5">
@@ -823,7 +942,7 @@ const HRDashboard = () => {
 
               {settingsDialog === 'job-template' && (
                 <div className="flex flex-col gap-4">
-                  <p className="text-sm text-slate-500">Upload a CSV with a <span className="font-semibold">title</span> column. This file will be used by Template in Job Positions.</p>
+                  <p className="text-sm text-slate-500">Upload a CSV whose header row defines the required job fields. Any field names are allowed, and every future job sheet must match this format exactly.</p>
                   <label className="auth-field">CSV template file
                     <input type="file" accept=".csv,text/csv" onChange={(event) => setJobTemplateFile(event.target.files?.[0] || null)} />
                   </label>
@@ -832,6 +951,353 @@ const HRDashboard = () => {
                   <button type="button" disabled={!jobTemplateFile || jobTemplateUploading} onClick={handleUploadJobTemplate} className="inline-flex w-fit items-center gap-2 rounded bg-brand-dark-green px-4 py-2.5 text-sm font-semibold text-white hover:bg-opacity-90 disabled:cursor-not-allowed disabled:opacity-60">
                     <UploadCloud size={16} /> {jobTemplateUploading ? 'Uploading...' : 'Upload CSV template'}
                   </button>
+                </div>
+              )}
+
+              {settingsDialog === 'upload-history' && (
+                uploadHistoryLoading ? <p className="text-sm text-slate-500">Loading upload history...</p> : uploadHistory.length === 0 ? <p className="text-sm text-slate-500">No job or template uploads yet.</p> : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[680px] border-collapse text-left text-sm">
+                      <thead><tr className="border-b text-xs uppercase text-slate-500"><th className="px-3 py-3">Upload ID</th><th className="px-3 py-3">File</th><th className="px-3 py-3">Type</th><th className="px-3 py-3">Uploaded by</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">When</th></tr></thead>
+                      <tbody>{uploadHistory.map((item) => <tr key={item.id} className="border-b border-slate-100 align-top"><td className="px-3 py-3 font-mono text-xs text-slate-600">{item.id}</td><td className="px-3 py-3 font-medium text-slate-800">{item.filename}</td><td className="px-3 py-3 capitalize">{item.uploadType}</td><td className="px-3 py-3">{item.uploadedByName}</td><td className={`px-3 py-3 font-semibold ${item.status === 'success' ? 'text-emerald-700' : item.status === 'failed' ? 'text-red-700' : 'text-amber-700'}`}>{item.status}{item.rowCount ? ` (${item.rowCount} rows)` : ''}<span className="block max-w-xs text-xs font-normal text-slate-500">{item.message}</span></td><td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString()}</td></tr>)}</tbody>
+                    </table>
+                  </div>
+                )
+              )}
+
+              {settingsDialog === 'logs' && (
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setLogsCategory('email'); loadLogs('email'); }}
+                        className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition ${
+                          logsCategory === 'email'
+                            ? 'bg-brand-dark-green text-white shadow-xs'
+                            : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Mail size={15} /> Email Logs
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setLogsCategory('login'); loadLogs('login'); }}
+                        className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition ${
+                          logsCategory === 'login'
+                            ? 'bg-brand-dark-green text-white shadow-xs'
+                            : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <LogIn size={15} /> Login Logs
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setLogsCategory('employee'); loadLogs('employee'); }}
+                        className={`flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition ${
+                          logsCategory === 'employee'
+                            ? 'bg-brand-dark-green text-white shadow-xs'
+                            : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <UserCheck size={15} /> Employee Account Logs
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => loadLogs(logsCategory)}
+                        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        <RefreshCw size={13} className={logsLoading ? 'animate-spin' : ''} /> Refresh
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder={`Search ${logsCategory} logs by name, email, or details...`}
+                      value={logsSearch}
+                      onChange={(e) => setLogsSearch(e.target.value)}
+                      className="w-full rounded-md border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-3 text-xs outline-none focus:border-brand-dark-green focus:bg-white"
+                    />
+                  </div>
+
+                  {logsLoading ? (
+                    <p className="py-8 text-center text-sm text-slate-500">Loading {logsCategory} logs...</p>
+                  ) : logs.length === 0 ? (
+                    <div className="py-10 text-center">
+                      <p className="text-sm font-semibold text-slate-700">No {logsCategory} logs recorded yet.</p>
+                      <p className="mt-1 text-xs text-slate-500">Activity will be logged here as actions are taken in the workspace.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-slate-200">
+                      <table className="w-full min-w-[700px] border-collapse text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-600">
+                            {logsCategory === 'email' && (
+                              <>
+                                <th className="px-3 py-2.5 font-semibold">Recipient</th>
+                                <th className="px-3 py-2.5 font-semibold">Subject / Template</th>
+                                <th className="px-3 py-2.5 font-semibold">Sent By</th>
+                                <th className="px-3 py-2.5 font-semibold">Status</th>
+                                <th className="px-3 py-2.5 font-semibold">Timestamp</th>
+                              </>
+                            )}
+                            {logsCategory === 'login' && (
+                              <>
+                                <th className="px-3 py-2.5 font-semibold">Account / User</th>
+                                <th className="px-3 py-2.5 font-semibold">Login Email</th>
+                                <th className="px-3 py-2.5 font-semibold">Role / Position</th>
+                                <th className="px-3 py-2.5 font-semibold">Status</th>
+                                <th className="px-3 py-2.5 font-semibold">Timestamp</th>
+                              </>
+                            )}
+                            {logsCategory === 'employee' && (
+                              <>
+                                <th className="px-3 py-2.5 font-semibold">Action</th>
+                                <th className="px-3 py-2.5 font-semibold">Employee</th>
+                                <th className="px-3 py-2.5 font-semibold">Position</th>
+                                <th className="px-3 py-2.5 font-semibold">Login Email</th>
+                                <th className="px-3 py-2.5 font-semibold">Performed By</th>
+                                <th className="px-3 py-2.5 font-semibold">Timestamp</th>
+                              </>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {logs
+                            .filter((log) => {
+                              if (!logsSearch.trim()) return true;
+                              const q = logsSearch.toLowerCase();
+                              return (
+                                log.targetName?.toLowerCase().includes(q) ||
+                                log.performedByName?.toLowerCase().includes(q) ||
+                                log.details?.email?.toLowerCase().includes(q) ||
+                                log.details?.recipientEmail?.toLowerCase().includes(q) ||
+                                log.details?.position?.toLowerCase().includes(q) ||
+                                log.details?.subject?.toLowerCase().includes(q) ||
+                                log.action?.toLowerCase().includes(q)
+                              );
+                            })
+                            .map((log) => (
+                              <tr key={log.id} className="hover:bg-slate-50/80">
+                                {logsCategory === 'email' && (
+                                  <>
+                                    <td className="px-3 py-2.5 font-medium text-slate-900">
+                                      {log.targetName || 'Candidate'}
+                                      <span className="block text-[11px] text-slate-500">{log.details?.recipientEmail || '—'}</span>
+                                    </td>
+                                    <td className="px-3 py-2.5">
+                                      <span className="font-semibold text-slate-800">{log.details?.subject || 'Outreach'}</span>
+                                      <span className="block text-[11px] text-slate-500">Template: {log.details?.templateName || 'Direct'}</span>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-slate-700">{log.performedByName || 'Recruiter'}</td>
+                                    <td className="px-3 py-2.5">
+                                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200">
+                                        Sent
+                                      </span>
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-500">{new Date(log.createdAt).toLocaleString()}</td>
+                                  </>
+                                )}
+
+                                {logsCategory === 'login' && (
+                                  <>
+                                    <td className="px-3 py-2.5 font-medium text-slate-900">{log.targetName || log.performedByName}</td>
+                                    <td className="px-3 py-2.5 text-slate-700 font-mono text-[11px]">{log.details?.email || '—'}</td>
+                                    <td className="px-3 py-2.5">
+                                      <span className="font-semibold text-slate-800">{log.details?.position || log.details?.role || 'User'}</span>
+                                      {log.details?.role && <span className="block text-[10px] text-slate-500">Role: {log.details.role}</span>}
+                                    </td>
+                                    <td className="px-3 py-2.5">
+                                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200">
+                                        Success
+                                      </span>
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-500">{new Date(log.createdAt).toLocaleString()}</td>
+                                  </>
+                                )}
+
+                                {logsCategory === 'employee' && (
+                                  <>
+                                    <td className="px-3 py-2.5">
+                                      <span
+                                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                          log.action === 'EMPLOYEE_CREATED'
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : log.action === 'EMPLOYEE_UPDATED'
+                                            ? 'bg-blue-100 text-blue-800'
+                                            : 'bg-rose-100 text-rose-800'
+                                        }`}
+                                      >
+                                        {log.action?.replace('EMPLOYEE_', '')}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2.5 font-medium text-slate-900">
+                                      {log.targetName}
+                                      {log.details?.employeeId && (
+                                        <span className="block text-[11px] text-slate-500">ID: {log.details.employeeId}</span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2.5 font-semibold text-brand-dark-green">
+                                      {log.details?.position || '—'}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-slate-700 font-mono text-[11px]">{log.details?.email || '—'}</td>
+                                    <td className="px-3 py-2.5 text-slate-700">{log.performedByName || 'Admin'}</td>
+                                    <td className="whitespace-nowrap px-3 py-2.5 text-slate-500">{new Date(log.createdAt).toLocaleString()}</td>
+                                  </>
+                                )}
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {addJobOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Add job position">
+          <div className="w-full max-w-xl rounded-xl bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Add Job Position</h2>
+                <p className="text-xs text-slate-500">Create a new job role or import multiple positions from a CSV sheet.</p>
+              </div>
+              <button type="button" title="Close add job" aria-label="Close add job" onClick={() => setAddJobOpen(false)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
+            </div>
+
+            <div className="flex border-b border-slate-200 bg-slate-50 px-6 pt-3">
+              <button
+                type="button"
+                onClick={() => setAddJobTab('manual')}
+                className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-bold transition ${
+                  addJobTab === 'manual'
+                    ? 'border-brand-dark-green text-brand-dark-green bg-white rounded-t-lg'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Plus size={14} /> Manual Job Entry
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddJobTab('csv')}
+                className={`flex items-center gap-2 border-b-2 px-4 py-2 text-xs font-bold transition ${
+                  addJobTab === 'csv'
+                    ? 'border-brand-dark-green text-brand-dark-green bg-white rounded-t-lg'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <UploadCloud size={14} /> Upload via CSV Sheet
+              </button>
+            </div>
+
+            <div className="p-6">
+              {addJobTab === 'manual' ? (
+                <form onSubmit={handleCreateManualJob} className="flex flex-col gap-4">
+                  <label className="auth-field">
+                    Job Title <span className="text-rose-500">*</span>
+                    <input
+                      required
+                      type="text"
+                      placeholder="e.g. Senior Software Engineer"
+                      value={manualJobForm.title}
+                      onChange={(e) => setManualJobForm({ ...manualJobForm, title: e.target.value })}
+                    />
+                  </label>
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label className="auth-field">
+                      Department
+                      <input
+                        type="text"
+                        placeholder="e.g. Engineering, Sales, HR"
+                        value={manualJobForm.department}
+                        onChange={(e) => setManualJobForm({ ...manualJobForm, department: e.target.value })}
+                      />
+                    </label>
+
+                    <label className="auth-field">
+                      Experience Required (Years)
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={manualJobForm.experience_required}
+                        onChange={(e) => setManualJobForm({ ...manualJobForm, experience_required: e.target.value })}
+                      />
+                    </label>
+                  </div>
+
+                  <label className="auth-field">
+                    Required Degree / Course
+                    <input
+                      type="text"
+                      placeholder="e.g. B.Tech Computer Science, MCA, BCA"
+                      value={manualJobForm.course_required}
+                      onChange={(e) => setManualJobForm({ ...manualJobForm, course_required: e.target.value })}
+                    />
+                  </label>
+
+                  <label className="auth-field">
+                    Required Skills
+                    <input
+                      type="text"
+                      placeholder="e.g. React, Node.js, TypeScript, SQL"
+                      value={manualJobForm.skills_required}
+                      onChange={(e) => setManualJobForm({ ...manualJobForm, skills_required: e.target.value })}
+                    />
+                  </label>
+
+                  <div className="mt-2 flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setAddJobOpen(false)}
+                      className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creatingJob}
+                      className="flex items-center gap-1.5 rounded-lg bg-brand-dark-green px-5 py-2 text-xs font-bold text-white shadow transition hover:bg-opacity-95 disabled:opacity-50"
+                    >
+                      {creatingJob ? 'Adding Job...' : 'Create Job Position'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <p className="text-xs text-slate-600">Upload a CSV job sheet following the active template format, or download the template first.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={handleDownloadTemplate} className="inline-flex items-center gap-2 rounded border border-brand-dark-green px-3 py-2 text-xs font-semibold text-brand-dark-green hover:bg-brand-green"><Download size={14} /> Download template</button>
+                    {uploading ? (
+                      <button type="button" onClick={handleCancelUpload} className="inline-flex items-center gap-2 rounded border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"><X size={14} /> Cancel upload</button>
+                    ) : (
+                      <label className="inline-flex cursor-pointer items-center gap-2 rounded bg-brand-dark-green px-3.5 py-2 text-xs font-semibold text-white hover:bg-opacity-90">
+                        <UploadCloud size={14} /> Choose CSV File
+                        <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileUpload} />
+                      </label>
+                    )}
+                  </div>
+                  {uploadStatus && <div aria-live="polite" className={`rounded border px-4 py-2.5 text-xs ${uploadStatus.startsWith('Error') ? 'border-red-200 bg-red-50 text-red-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>{uploadStatus}</div>}
+                  {uploadReview && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+                      <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-red-900 text-xs">Format needs attention</p><p className="mt-1 text-xs text-red-800">{uploadReview.message}</p></div><button type="button" aria-label="Close upload review" onClick={() => setUploadReview(null)} className="rounded p-1 text-red-700 hover:bg-red-100"><X size={14} /></button></div>
+                      <table className="mt-3 w-full text-left text-xs"><thead><tr className="border-b border-red-200 text-red-800"><th className="px-2 py-1.5">Field</th><th className="px-2 py-1.5">Issue</th><th className="px-2 py-1.5 text-right">Action</th></tr></thead><tbody>{uploadReview.fields.map(({ header, status }) => <tr key={`${status}-${header}`} className="border-b border-red-100"><td className="px-2 py-1.5 font-mono">{header}</td><td className="px-2 py-1.5">{status}</td><td className="px-2 py-1.5 text-right"><button type="button" onClick={handleDownloadTemplate} className="font-semibold text-emerald-800 hover:underline">Add</button></td></tr>)}</tbody></table>
+                      <div className="mt-3 flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setUploadReview(null)} className="rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Skip upload</button><button type="button" onClick={handleSaveUploadReview} className="rounded border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100">Save report</button></div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -884,40 +1350,10 @@ const HRDashboard = () => {
       {candidateModalOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Candidate details">
           <div className="flex max-h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
-              <div className="flex flex-wrap items-center gap-4">
-                <div>
-                  <h2 className="font-semibold text-slate-800">Candidate details</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {filteredCandidates.length} {filteredCandidates.length === 1 ? 'candidate' : 'candidates'} {candidateSearchQuery ? `(filtered from ${candidates.length})` : 'in workspace'}
-                  </p>
-                </div>
-                <div className="relative min-w-[280px]">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Search candidates by name, email, stage, notes..."
-                    value={candidateSearchQuery}
-                    onChange={(e) => {
-                      setCandidateSearchQuery(e.target.value);
-                      setCandidatePage(1);
-                    }}
-                    className="w-full rounded-md border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-7 text-xs outline-none focus:border-brand-dark-green focus:bg-white"
-                  />
-                  {candidateSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCandidateSearchQuery('');
-                        setCandidatePage(1);
-                      }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                      title="Clear search"
-                    >
-                      <X size={12} />
-                    </button>
-                  )}
-                </div>
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 className="font-semibold text-slate-800">Candidate details</h2>
+                <p className="mt-1 text-sm text-slate-500">{candidates.length} candidates</p>
               </div>
               <button type="button" title="Close candidates" aria-label="Close candidates" onClick={() => setCandidateModalOpen(false)} className="rounded p-2 text-slate-500 hover:bg-slate-100"><X size={18} /></button>
             </div>
@@ -936,60 +1372,34 @@ const HRDashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedCandidates.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="py-12 text-center text-sm text-slate-500">
-                        No candidates found matching "{candidateSearchQuery}".
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCandidateSearchQuery('');
-                            setCandidatePage(1);
-                          }}
-                          className="ml-2 font-medium text-brand-dark-green underline hover:text-emerald-800"
-                        >
-                          Clear search
+                  {candidates.map((candidate) => (
+                    <tr key={candidate.id} className="border-b border-slate-100 text-slate-700 last:border-0">
+                      <td className="px-3 py-3 font-medium text-slate-900">{candidate.name}</td>
+                      <td className="px-3 py-3">{candidate.email}</td>
+                      <td className="px-3 py-3">{isCompanyAdmin ? (
+                        <select aria-label={`${candidate.name} hiring stage`} value={candidate.stage || 'Pending'} onChange={(event) => handleCandidateWorkflowChange(candidate, { stage: event.target.value })} className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
+                          {['Pending', 'Interview', 'Hired', 'Rejected'].map((stage) => <option key={stage}>{stage}</option>)}
+                        </select>
+                      ) : candidate.stage || 'Pending'}</td>
+                      <td className="px-3 py-3">{isCompanyAdmin ? (
+                        <button type="button" onClick={() => handleCandidateWorkflowChange(candidate, { outreachStatus: candidate.outreachStatus === 'Contacted' ? 'Pending' : 'Contacted' })} className={`rounded px-2 py-1 text-xs font-semibold ${candidate.outreachStatus === 'Contacted' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
+                          {candidate.outreachStatus === 'Contacted' ? 'Contacted' : 'Mark contacted'}
                         </button>
-                      </td>
+                      ) : candidate.outreachStatus || 'Pending'}</td>
+                      <td className="px-3 py-3">{new Date(candidate.createdAt).toLocaleDateString()}</td>
+                      <td className="px-3 py-3">{candidate.resumeAvailable ? (
+                        <button type="button" title="View resume" aria-label={`View ${candidate.name}'s resume`} onClick={() => handleViewResume(candidate)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Eye size={17} /></button>
+                      ) : <span className="text-slate-400">Not uploaded</span>}</td>
+                      <td className="px-3 py-3"><button type="button" title="View or write note" aria-label={`${isCompanyAdmin ? 'Write' : 'View'} note for ${candidate.name}`} onClick={() => setNoteCandidate(candidate)} className={`rounded p-2 hover:bg-emerald-50 ${candidate.notes?.trim() ? 'text-emerald-600' : 'text-slate-400'}`}><FilePenLine size={17} /></button></td>
+                      <td className="px-3 py-3"><div className="flex justify-end gap-1">
+                        <button type="button" title="Create email" aria-label={`Email ${candidate.name}`} onClick={() => openMailComposer(candidate)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Mail size={16} /></button>
+                        {isCompanyAdmin && <button type="button" title="Delete candidate" aria-label={`Delete ${candidate.name}`} disabled={busyCandidateId === candidate.id} onClick={() => handleDeleteCandidate(candidate)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button>}
+                      </div></td>
                     </tr>
-                  ) : (
-                    paginatedCandidates.map((candidate) => (
-                      <tr key={candidate.id} className="border-b border-slate-100 text-slate-700 last:border-0 hover:bg-slate-50/50">
-                        <td className="px-3 py-3 font-medium text-slate-900">{candidate.name}</td>
-                        <td className="px-3 py-3">{candidate.email}</td>
-                        <td className="px-3 py-3">{isCompanyAdmin ? (
-                          <select aria-label={`${candidate.name} hiring stage`} value={candidate.stage || 'Pending'} onChange={(event) => handleCandidateWorkflowChange(candidate, { stage: event.target.value })} className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm">
-                            {['Pending', 'Interview', 'Hired', 'Rejected'].map((stage) => <option key={stage}>{stage}</option>)}
-                          </select>
-                        ) : candidate.stage || 'Pending'}</td>
-                        <td className="px-3 py-3">{isCompanyAdmin ? (
-                          <button type="button" onClick={() => handleCandidateWorkflowChange(candidate, { outreachStatus: candidate.outreachStatus === 'Contacted' ? 'Pending' : 'Contacted' })} className={`rounded px-2 py-1 text-xs font-semibold ${candidate.outreachStatus === 'Contacted' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
-                            {candidate.outreachStatus === 'Contacted' ? 'Contacted' : 'Mark contacted'}
-                          </button>
-                        ) : candidate.outreachStatus || 'Pending'}</td>
-                        <td className="px-3 py-3">{new Date(candidate.createdAt).toLocaleDateString()}</td>
-                        <td className="px-3 py-3">{candidate.resumeAvailable ? (
-                          <button type="button" title="View resume" aria-label={`View ${candidate.name}'s resume`} onClick={() => handleViewResume(candidate)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Eye size={17} /></button>
-                        ) : <span className="text-slate-400">Not uploaded</span>}</td>
-                        <td className="px-3 py-3"><button type="button" title="View or write note" aria-label={`${isCompanyAdmin ? 'Write' : 'View'} note for ${candidate.name}`} onClick={() => setNoteCandidate(candidate)} className={`rounded p-2 hover:bg-emerald-50 ${candidate.notes?.trim() ? 'text-emerald-600' : 'text-slate-400'}`}><FilePenLine size={17} /></button></td>
-                        <td className="px-3 py-3"><div className="flex justify-end gap-1">
-                          <button type="button" title="Create email" aria-label={`Email ${candidate.name}`} onClick={() => openMailComposer(candidate)} className="rounded p-2 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"><Mail size={16} /></button>
-                          {isCompanyAdmin && <button type="button" title="Delete candidate" aria-label={`Delete ${candidate.name}`} disabled={busyCandidateId === candidate.id} onClick={() => handleDeleteCandidate(candidate)} className="rounded p-2 text-slate-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"><Trash2 size={16} /></button>}
-                        </div></td>
-                      </tr>
-                    ))
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
-            <PaginationControls
-              currentPage={candidatePage}
-              totalPages={totalCandidatePages}
-              totalItems={filteredCandidates.length}
-              pageSize={PAGE_SIZE}
-              onPageChange={setCandidatePage}
-              label="candidates"
-            />
           </div>
         </div>
       )}
@@ -1050,8 +1460,27 @@ const HRDashboard = () => {
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
               <button type="button" onClick={() => setMailCandidate(null)} className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Cancel</button>
-              <a href={`mailto:${encodeURIComponent(mailCandidate.email)}?subject=${encodeURIComponent(mailSubject)}&body=${encodeURIComponent(mailBody)}`} className="inline-flex items-center gap-2 rounded bg-brand-dark-green px-4 py-2 text-sm font-semibold text-white hover:bg-opacity-90">
-                <Mail size={16} /> Open email app
+              <a
+                href={`mailto:${encodeURIComponent(mailCandidate.email)}?subject=${encodeURIComponent(mailSubject)}&body=${encodeURIComponent(mailBody)}`}
+                onClick={async () => {
+                  try {
+                    await api.post('/logs/email', {
+                      candidateId: mailCandidate.id,
+                      candidateName: mailCandidate.name,
+                      candidateEmail: mailCandidate.email,
+                      subject: mailSubject,
+                      templateName: mailTemplates.find((t) => t.id === mailTemplate)?.name || 'Direct Outreach',
+                    });
+                    setCandidates((current) => current.map((item) => item.id === mailCandidate.id ? { ...item, outreachStatus: 'Contacted', lastContactedAt: new Date() } : item));
+                    toast.success(`Email outreach logged for ${mailCandidate.name}`);
+                  } catch (e) {
+                    console.error('Could not log email:', e);
+                  }
+                  setMailCandidate(null);
+                }}
+                className="inline-flex items-center gap-2 rounded bg-brand-dark-green px-4 py-2 text-sm font-semibold text-white hover:bg-opacity-90"
+              >
+                <Mail size={16} /> Open email app &amp; log
               </a>
             </div>
           </div>

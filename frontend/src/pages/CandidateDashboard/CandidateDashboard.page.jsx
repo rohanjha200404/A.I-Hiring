@@ -1,76 +1,102 @@
-import { useEffect, useRef, useState } from 'react';
-import { UploadCloud, FileText, CheckCircle, XCircle, Eye, Briefcase, RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Briefcase, CheckCircle, ChevronDown, Eye, FileText, Filter, RefreshCw,
+  Search, Sparkles, UploadCloud, UserRound, X, Zap,
+} from 'lucide-react';
 import api from '../../api/axios.config.js';
 import { toast } from 'sonner';
 
+const normalize = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
 const CandidateDashboard = () => {
+  const [account] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; }
+  });
+  const [profile, setProfile] = useState(null);
+  const [jobs, setJobs] = useState([]);
+  const [activeSection, setActiveSection] = useState('info');
+  const [jobFilter, setJobFilter] = useState('all');
+  const [jobSearch, setJobSearch] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('all');
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [interestedJobs, setInterestedJobs] = useState(new Set());
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [viewingResume, setViewingResume] = useState(false);
   const [file, setFile] = useState(null);
   const [parsingData, setParsingData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [resume, setResume] = useState(null);
-  const [jobs, setJobs] = useState([]);
-  const [jobsLoading, setJobsLoading] = useState(true);
-  const [viewingResume, setViewingResume] = useState(false);
   const fileInputRef = useRef(null);
 
-  const loadCandidateData = async () => {
-    setJobsLoading(true);
+  const resume = profile?.resume;
+  const workflow = profile?.workflow || { stage: 'Pending', outreachStatus: 'Pending' };
+
+  const loadData = async () => {
+    setLoading(true);
     try {
-      const [resumeResponse, jobsResponse] = await Promise.all([
-        api.get('/resumes/me'),
-        api.get('/jobs/matches'),
+      const [profileResponse, jobsResponse] = await Promise.all([
+        api.get('/users/me/candidate'),
+        api.get('/jobs/open'),
       ]);
-      setResume(resumeResponse.data);
-      setJobs(jobsResponse.data);
+      setProfile(profileResponse.data);
+      setJobs(jobsResponse.data || []);
     } catch (error) {
-      if (error.response?.status !== 404) {
-        toast.error(error.response?.data?.message || 'Could not load your resume and job matches.');
-      }
-      setResume(null);
-      setJobs([]);
+      toast.error(error.response?.data?.message || 'Could not load your candidate workspace.');
     } finally {
-      setJobsLoading(false);
+      setLoading(false);
     }
   };
 
+  useEffect(() => { loadData(); }, []);
   useEffect(() => {
-    loadCandidateData();
+    const refresh = () => { if (document.visibilityState === 'visible') loadData(); };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
   }, []);
 
-  const handleFileChange = (e) => {
-    const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
+  const isMatching = (job) => {
+    if (!resume) return false;
+    const requiredExperience = Number(job.experience_required) || 0;
+    const candidateTokens = new Set(normalize(resume.mappedCourse).split(' ').filter((token) => token.length > 1));
+    const requiredTokens = normalize(job.course_required).split(' ').filter((token) => token.length > 1);
+    return resume.yearsExperience >= requiredExperience
+      && (requiredTokens.length === 0 || resume.mappedCourse === 'Unknown' || requiredTokens.some((token) => candidateTokens.has(token)));
+  };
 
-    const isPdf = selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf');
-    if (!isPdf) {
-      setFile(null);
-      e.target.value = '';
+  const departments = useMemo(() => [...new Set(jobs.map((job) => job.department || 'General'))].sort(), [jobs]);
+  const filteredJobs = useMemo(() => jobs.filter((job) => {
+    const searchable = normalize(`${job.title} ${job.department} ${job.course_required} ${job.skills_required}`);
+    return (!jobSearch.trim() || searchable.includes(normalize(jobSearch)))
+      && (departmentFilter === 'all' || (job.department || 'General') === departmentFilter)
+      && (jobFilter === 'all' || isMatching(job));
+  }), [jobs, jobSearch, departmentFilter, jobFilter, resume]);
+
+  const handleFileChange = (event) => {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) return;
+    if (selectedFile.type !== 'application/pdf' && !selectedFile.name.toLowerCase().endsWith('.pdf')) {
+      event.target.value = '';
       toast.error('Choose a PDF resume to continue.');
       return;
     }
-
     setFile(selectedFile);
-    toast.success('Resume selected', { description: selectedFile.name });
   };
 
   const handleUploadResume = async () => {
     if (!file) return;
-    setLoading(true);
-    
+    setUploading(true);
     const formData = new FormData();
     formData.append('file', file);
-    
     try {
-      const res = await api.post('/resumes/upload', formData);
-      setParsingData(res.data);
-      await loadCandidateData();
+      const response = await api.post('/resumes/upload', formData);
+      setParsingData(response.data);
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      await loadData();
       toast.success('Resume analyzed successfully.');
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Could not upload the resume. Check that the backend is running.');
+      toast.error(error.response?.data?.message || 'Could not upload the resume.');
     } finally {
-      setLoading(false);
+      setUploading(false);
     }
   };
 
@@ -88,108 +114,130 @@ const CandidateDashboard = () => {
     }
   };
 
+  const handleInterest = async (job) => {
+    try {
+      await api.post(`/jobs/${job.id}/interest`);
+      setInterestedJobs((current) => new Set([...current, job.id]));
+      toast.success(`Interest sent for ${job.title}.`);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not send your interest.');
+    }
+  };
+
+  const matchingCount = jobs.filter(isMatching).length;
+  const stageColors = {
+    Pending: 'bg-amber-50 text-amber-700 border-amber-200',
+    Interview: 'bg-blue-50 text-blue-700 border-blue-200',
+    Hired: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    Rejected: 'bg-rose-50 text-rose-700 border-rose-200',
+  };
+
   return (
-    <div className="bg-white rounded-lg shadow min-h-[70vh] p-8">
-      <h2 className="text-3xl font-bold text-brand-dark-green mb-2">My Applications</h2>
-      <p className="text-gray-600 mb-8 border-b pb-4">Upload your PDF resume to have our AI analyze your profile for the best matches.</p>
-      
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-        <div className="border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 p-8">
-          <FileText size={64} className="text-gray-400 mb-4" />
-          <h3 className="text-lg font-semibold text-gray-700 mb-2">Your resume</h3>
-          <p className="text-sm text-gray-500 mb-6">Upload a PDF resume. Your profile is used to find suitable roles from recruiter job listings.</p>
-          
-          <input ref={fileInputRef} type="file" accept="application/pdf,.pdf" onChange={handleFileChange} className="mb-4 text-sm" />
-          
-          <button 
-            onClick={handleUploadResume}
-            disabled={!file || loading}
-            className={`flex items-center gap-2 px-6 py-3 rounded-full text-white font-bold transition ${(!file || loading) ? 'bg-gray-400 cursor-not-allowed' : 'bg-brand-dark-green hover:bg-opacity-90 shadow-lg'}`}
-          >
-            <UploadCloud size={20} /> {loading ? 'Analyzing with AI...' : 'Upload resume'}
-          </button>
-          {resume && (
-            <div className="mt-6 border-t border-gray-200 pt-5">
-              <p className="mb-3 text-sm font-semibold text-gray-700">Uploaded: {resume.originalName}</p>
-              <button onClick={handleViewResume} disabled={viewingResume} className="flex items-center gap-2 rounded border border-brand-dark-green px-4 py-2 text-sm font-semibold text-brand-dark-green hover:bg-brand-green/10 disabled:opacity-50">
-                <Eye size={17} /> {viewingResume ? 'Opening...' : 'View uploaded resume'}
-              </button>
+    <div className="mx-auto min-h-[70vh] max-w-7xl rounded-2xl bg-slate-50 p-4 sm:p-7">
+      <section className="relative overflow-hidden rounded-2xl bg-brand-dark-green p-6 text-white shadow-lg sm:p-8">
+        <div className="relative z-10 flex flex-wrap items-start justify-between gap-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/15 text-xl font-bold ring-2 ring-white/30">
+              {(profile?.name || account?.name || 'C').split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}
             </div>
-          )}
-        </div>
-
-        <div className="border rounded-lg p-6 shadow-sm bg-white">
-          <div className="flex items-center justify-between gap-4 border-b pb-4">
             <div>
-              <h3 className="flex items-center gap-2 text-xl font-bold text-gray-800"><Briefcase size={21} /> Jobs matching your resume</h3>
-              <p className="mt-1 text-sm text-gray-500">Recruiter-uploaded roles filtered by course and experience.</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100">Candidate workspace</p>
+              <h1 className="mt-1 text-3xl font-bold">Welcome, {profile?.name || account?.name || 'Candidate'}!</h1>
+              <p className="mt-2 text-sm text-emerald-50">{profile?.email || account?.email || 'Candidate account'}</p>
+              <p className="mt-1 text-xs text-emerald-100">Member since {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString() : '—'}</p>
             </div>
-            <button onClick={loadCandidateData} title="Refresh matches" className="rounded p-2 text-brand-dark-green hover:bg-brand-green/10"><RefreshCw size={18} /></button>
           </div>
+          <div className="flex flex-wrap gap-2 text-xs font-semibold">
+            <span className={`rounded-full border px-3 py-1.5 ${resume ? 'border-emerald-200 bg-emerald-100 text-emerald-900' : 'border-white/20 bg-white/10 text-white'}`}>{resume ? 'Resume active' : 'Resume pending'}</span>
+            <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5">Stage: {workflow.stage}</span>
+          </div>
+        </div>
+        <div className="relative z-10 mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            ['Open roles', jobs.length],
+            ['Matching roles', matchingCount],
+            ['Experience', resume ? `${resume.yearsExperience} yrs` : '—'],
+            ['AI score', resume?.matchScore || '—'],
+          ].map(([label, value]) => <div key={label} className="rounded-xl bg-white/10 p-3"><p className="text-xs text-emerald-100">{label}</p><p className="mt-1 text-xl font-bold">{value}</p></div>)}
+        </div>
+      </section>
 
-          {jobsLoading ? (
-            <p className="py-10 text-center text-sm text-gray-500">Loading matching jobs...</p>
-          ) : !resume ? (
-            <p className="py-10 text-center text-sm text-gray-500">Upload your resume to see matching jobs.</p>
-          ) : jobs.length === 0 ? (
-            <p className="py-10 text-center text-sm text-gray-500">No jobs currently match your resume.</p>
-          ) : (
-            <div className="mt-5 space-y-3">
-              {jobs.map((job) => (
-                <article key={job.id} className="rounded border border-gray-200 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h4 className="font-bold text-brand-dark-green">{job.title}</h4>
-                      <p className="mt-1 text-sm text-gray-600">{job.department || 'General'} · {job.experience_required || 0} years experience</p>
-                    </div>
-                    {job.course_required && <span className="rounded-full bg-brand-green/20 px-3 py-1 text-xs font-semibold text-brand-dark-green">{job.course_required}</span>}
-                  </div>
-                  {job.skills_required && <p className="mt-3 text-sm text-gray-600"><span className="font-semibold">Skills:</span> {job.skills_required}</p>}
-                </article>
-              ))}
+      <nav className="my-6 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="Candidate dashboard sections">
+        <button type="button" onClick={() => setActiveSection('positions')} className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold ${activeSection === 'positions' ? 'bg-brand-dark-green text-white' : 'text-slate-600 hover:bg-brand-green'}`}><Briefcase size={17} /> Open positions</button>
+        <button type="button" onClick={() => setActiveSection('info')} className={`flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold ${activeSection === 'info' ? 'bg-brand-dark-green text-white' : 'text-slate-600 hover:bg-brand-green'}`}><UserRound size={17} /> Candidate info</button>
+      </nav>
+
+      {activeSection === 'info' ? (
+        <section className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Metric label="Resume status" value={resume ? 'Active' : 'Not uploaded'} detail={resume?.originalName || 'Upload a PDF to get started'} />
+            <Metric label="Detected education" value={resume?.mappedCourse || '—'} detail="AI-extracted qualification" />
+            <Metric label="Detected experience" value={resume ? `${resume.yearsExperience} Years` : '—'} detail={`${matchingCount} matching open roles`} />
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-slate-800">Personal &amp; account details</h2>
+              <dl className="mt-5 grid gap-4 sm:grid-cols-2">
+                <Info label="Full name" value={profile?.name || account?.name} />
+                <Info label="Email address" value={profile?.email || account?.email} />
+                <Info label="Role" value="Candidate" />
+                <Info label="Pipeline status" value={workflow.stage} />
+                <Info label="AI compatibility" value={resume?.matchScore || 'Not analyzed'} />
+              </dl>
             </div>
-          )}
-        </div>
-      </div>
-
-      {parsingData && (
-        <div className="mt-8 max-w-3xl mx-auto border rounded-lg p-6 shadow-sm">
-           <div className="flex items-center gap-3 mb-6 border-b pb-4">
-             {parsingData.status === 'Forwarded to HR' ? (
-                <CheckCircle className="text-green-600" size={32} />
-             ) : (
-                <XCircle className="text-red-500" size={32} />
-             )}
-             <div>
-                <h3 className="text-xl font-bold text-gray-800">Application Status: {parsingData.status}</h3>
-                <p className="text-gray-500">Match Score: {parsingData.ai_match_score}</p>
-             </div>
-           </div>
-
-           <div className="grid grid-cols-2 gap-4">
-             <div className="bg-brand-green/20 p-4 rounded-lg">
-                <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">AI Detected Course</p>
-                <p className="text-lg font-medium text-brand-dark-green">{parsingData.extracted_data.mapped_course}</p>
-             </div>
-             <div className="bg-brand-green/20 p-4 rounded-lg">
-                <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">AI Detected Experience</p>
-                <p className="text-lg font-medium text-brand-dark-green">{parsingData.extracted_data.years_experience} Years</p>
-             </div>
-             <div className="col-span-2 bg-gray-50 p-4 rounded-lg border mt-2">
-                <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">Raw Extracted Text (Preview)</p>
-                <p className="text-sm text-gray-700 italic font-mono whitespace-pre-wrap">"{parsingData.extracted_data.raw_text_preview}"</p>
-             </div>
-           </div>
-
-           <div className="mt-8 flex justify-center">
-             <button onClick={() => setParsingData(null)} className="text-brand-dark-green underline font-medium hover:text-black">
-               Dismiss analysis
-             </button>
-           </div>
-        </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-bold text-slate-800">Resume management</h2>
+              <p className="mt-2 text-sm text-slate-500">Upload or replace your PDF resume for AI parsing.</p>
+              <input ref={fileInputRef} type="file" accept="application/pdf,.pdf" onChange={handleFileChange} className="mt-5 w-full text-sm" />
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" onClick={handleUploadResume} disabled={!file || uploading} className="inline-flex items-center gap-2 rounded-lg bg-brand-dark-green px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"><UploadCloud size={16} /> {uploading ? 'Analyzing...' : 'Upload resume'}</button>
+                {resume && <button type="button" onClick={handleViewResume} disabled={viewingResume} className="inline-flex items-center gap-2 rounded-lg border border-brand-dark-green px-4 py-2.5 text-sm font-semibold text-brand-dark-green disabled:opacity-50"><Eye size={16} /> {viewingResume ? 'Opening...' : 'View resume'}</button>}
+              </div>
+              {resume && <p className="mt-4 flex items-center gap-2 text-xs text-emerald-700"><CheckCircle size={15} /> {resume.originalName}</p>}
+            </div>
+          </div>
+          {resume && <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-6">
+            <div className="flex items-center gap-2"><Sparkles size={18} className="text-brand-dark-green" /><h2 className="text-lg font-bold text-slate-800">AI profile insights</h2></div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-3"><Info label="Mapped course" value={resume.mappedCourse} /><Info label="Years of experience" value={`${resume.yearsExperience} Years`} /><Info label="Application status" value={resume.status} /></div>
+            {parsingData?.extracted_data?.raw_text_preview && <p className="mt-5 rounded-lg bg-white p-4 text-sm italic text-slate-600">{parsingData.extracted_data.raw_text_preview}</p>}
+          </div>}
+        </section>
+      ) : (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div><h2 className="text-2xl font-bold text-slate-800">Open positions</h2><p className="mt-1 text-sm text-slate-500">Find your next opportunity and express interest instantly.</p></div>
+            <button type="button" onClick={loadData} className="rounded-lg border border-slate-200 p-2 text-brand-dark-green hover:bg-brand-green"><RefreshCw size={17} /></button>
+          </div>
+          <div className="mt-6 grid gap-3 lg:grid-cols-[1fr_auto_auto]">
+            <label className="relative"><Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder="Search title, skills, education, or department" className="w-full rounded-lg border border-slate-300 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-brand-dark-green" /></label>
+            <select value={jobFilter} onChange={(event) => setJobFilter(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm"><option value="all">All open roles</option><option value="matching">Matching your resume</option></select>
+            <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm"><option value="all">All departments</option>{departments.map((department) => <option key={department} value={department}>{department}</option>)}</select>
+          </div>
+          {loading ? <p className="py-12 text-center text-sm text-slate-500">Loading open positions...</p> : filteredJobs.length === 0 ? <div className="py-12 text-center"><Filter className="mx-auto text-slate-300" size={30} /><p className="mt-3 font-semibold text-slate-700">No positions found</p><p className="mt-1 text-sm text-slate-500">Try clearing your search or browse all open roles.</p><button type="button" onClick={() => { setJobSearch(''); setJobFilter('all'); setDepartmentFilter('all'); }} className="mt-4 text-sm font-semibold text-brand-dark-green">Clear filters</button></div> : <div className="mt-6 grid gap-4 md:grid-cols-2">{filteredJobs.map((job) => <JobCard key={job.id} job={job} matched={isMatching(job)} interested={interestedJobs.has(job.id)} onDetails={() => setSelectedJob(job)} onInterest={() => handleInterest(job)} />)}</div>}
+        </section>
       )}
+
+      {selectedJob && <JobDetails job={selectedJob} matched={isMatching(selectedJob)} interested={interestedJobs.has(selectedJob.id)} onClose={() => setSelectedJob(null)} onInterest={() => handleInterest(selectedJob)} />}
     </div>
   );
 };
+
+const Metric = ({ label, value, detail }) => <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 truncate text-lg font-bold text-brand-dark-green">{value}</p><p className="mt-1 truncate text-xs text-slate-500">{detail}</p></div>;
+const Info = ({ label, value }) => <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt><dd className="mt-1 text-sm font-semibold text-slate-800">{value || '—'}</dd></div>;
+
+const JobCard = ({ job, matched, interested, onDetails, onInterest }) => (
+  <article className="rounded-xl border border-slate-200 p-5 transition hover:border-emerald-300 hover:shadow-md">
+    <div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-brand-dark-green">{job.title}</h3><p className="mt-1 text-sm text-slate-600">{job.department || 'General'} · {job.experience_required || 0} years experience</p></div>{matched && <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700"><Sparkles size={12} /> AI Matched</span>}</div>
+    {job.course_required && <p className="mt-4 text-sm text-slate-600"><span className="font-semibold">Education:</span> {job.course_required}</p>}
+    {job.skills_required && <div className="mt-3 flex flex-wrap gap-1.5">{job.skills_required.split(/[,;|]/).map((skill) => skill.trim()).filter(Boolean).map((skill) => <span key={skill} className="rounded-full bg-brand-green px-2.5 py-1 text-xs font-medium text-brand-dark-green">{skill}</span>)}</div>}
+    <div className="mt-5 flex gap-2 border-t border-slate-100 pt-4"><button type="button" onClick={onDetails} className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Details</button><button type="button" onClick={onInterest} disabled={interested} className="flex-1 inline-flex items-center justify-center gap-1 rounded-lg bg-brand-dark-green px-3 py-2 text-sm font-semibold text-white disabled:bg-emerald-200"><Zap size={15} /> {interested ? 'Interest sent' : 'Express interest'}</button></div>
+  </article>
+);
+
+const JobDetails = ({ job, matched, interested, onClose, onInterest }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-label={`${job.title} details`}>
+    <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white shadow-2xl"><div className="flex items-start justify-between border-b border-slate-200 p-6"><div><div className="flex items-center gap-2">{matched && <Sparkles size={16} className="text-amber-500" />}<h2 className="text-xl font-bold text-slate-800">{job.title}</h2></div><p className="mt-1 text-sm text-slate-500">{job.department || 'General'} · {job.experience_required || 0} years experience</p></div><button type="button" onClick={onClose} aria-label="Close details" className="rounded p-1 text-slate-500 hover:bg-slate-100"><X size={19} /></button></div><div className="space-y-5 p-6"><Info label="Required education" value={job.course_required || 'Not specified'} /><Info label="Required skills" value={job.skills_required || 'Not specified'} /><Info label="Posted" value={job.createdAt ? new Date(job.createdAt).toLocaleDateString() : 'Recently'} />{Object.keys(job.customFields || {}).length > 0 && <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Additional job details</p><dl className="mt-3 grid gap-3 sm:grid-cols-2">{Object.entries(job.customFields).map(([key, value]) => <Info key={key} label={key.replaceAll('_', ' ')} value={value} />)}</dl></div>}<div className="flex justify-end"><button type="button" onClick={onInterest} disabled={interested} className="inline-flex items-center gap-2 rounded-lg bg-brand-dark-green px-4 py-2.5 text-sm font-semibold text-white disabled:bg-emerald-200"><Zap size={15} /> {interested ? 'Interest sent' : 'Express interest'}</button></div></div></div>
+  </div>
+);
 
 export default CandidateDashboard;

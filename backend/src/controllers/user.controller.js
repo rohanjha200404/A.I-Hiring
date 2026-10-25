@@ -121,3 +121,37 @@ export const updateCandidateWorkflow = async (req, res) => {
     res.status(500).json({ message: 'Could not update candidate status', error: error.message });
   }
 };
+
+export const getMyCandidateProfile = async (req, res) => {
+  try {
+    const candidate = await User.findOne({
+      where: { id: req.auth.id, role: 'Candidate' },
+      attributes: ['id', 'name', 'email', 'role', 'createdAt'],
+    });
+    if (!candidate) return res.status(404).json({ message: 'Candidate account not found' });
+
+    const [resume, workflow] = await Promise.all([
+      CandidateResume.findOne({ where: { candidateId: candidate.id } }),
+      CandidateWorkflow.findOrCreate({ where: { candidateId: candidate.id }, defaults: { candidateId: candidate.id } }),
+    ]);
+    res.json({
+      ...candidate.toJSON(),
+      resume: resume ? {
+        id: resume.id,
+        originalName: resume.originalName,
+        mappedCourse: resume.mappedCourse,
+        yearsExperience: resume.yearsExperience,
+        matchScore: resume.matchScore,
+        status: resume.status,
+        uploadedAt: resume.updatedAt,
+      } : null,
+      workflow: {
+        stage: workflow[0].stage,
+        outreachStatus: workflow[0].outreachStatus,
+        notes: workflow[0].notes,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Could not load candidate profile', error: error.message });
+  }
+};

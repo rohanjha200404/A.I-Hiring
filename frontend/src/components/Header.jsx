@@ -26,7 +26,7 @@ const Header = () => {
   const accountType = account?.role === 'HR' || account?.role === 'Admin'
     ? 'Recruiter'
     : account?.role === 'Employee'
-      ? 'Employee'
+      ? account.position || 'Employee'
       : 'Candidate';
   const isCompanyAdmin = ['HR', 'Admin'].includes(account?.role);
   const pageTitle = pathname === '/login/recruiter'
